@@ -8,7 +8,7 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.23"
+ver="0.29"
 ip="127.0.0.1"
 subnet=32
 port="4444"
@@ -52,8 +52,27 @@ C_CYAN=""
 # In-memory command history for the current session.
 command_history=()
 
+# Tracks the current screen so menu_prompt() can render context-aware navigation shortcuts.
+current_menu_title=""
+
+# Workspace / project state. Workspaces keep target metadata, notes, findings,
+# and imported service inventories together while normal Tool_Box result files
+# continue to use the configured output directory.
+workspace_name=""
+workspace_dir=""
+workspace_loaded=false
+config_profiles_dir="$HOME/.tool_box_profiles"
+toolbox_repo_url="https://github.com/NecromancerLich/tool_box"
+toolbox_raw_url="https://raw.githubusercontent.com/NecromancerLich/tool_box/refs/heads/main/ToolBox.sh"
+
 # Set by run_privileged_command() so elevated actions receive an extra warning.
 command_requires_privilege=false
+
+# When a standard-user Tool_Box session starts a nested root session, these
+# values identify the parent session and allow the root instance to return to it.
+toolbox_parent_user="${TOOLBOX_PARENT_USER:-}"
+toolbox_elevated_session="${TOOLBOX_ELEVATED_SESSION:-false}"
+toolbox_nav_restart="${TOOLBOX_NAV_RESTART:-false}"
 
 # Command currently being previewed.
 command=()
@@ -301,14 +320,46 @@ msg_error() {
     printf '%b\n' "${C_RED}[-]${C_RESET} $*"
 }
 
+menu_footer() {
+    # Global navigation shortcuts are intentionally available from every menu.
+    # 0 remains the normal local Back action; M/T/W jump directly to common
+    # destinations without requiring the user to climb back through menus.
+    if [[ "$current_menu_title" == "Tool_Box" ]]; then
+        printf '%b\n' "${C_DIM}[T] Set Target/Data   [W] Workspace   [H] Help${C_RESET}"
+    else
+        printf '%b\n' "${C_DIM}[0] Back   [M] Main Menu   [T] Set Target/Data   [W] Workspace   [H] Help${C_RESET}"
+    fi
+}
+
 menu_prompt() {
-    local variable_name="$1"
+    local variable_name="$1" input
+    echo ""
+    menu_footer
     printf '%b' "${C_CYAN}${C_BOLD} # ${C_RESET}"
-    IFS= read -r "$variable_name"
+    IFS= read -r input
+
+    case "$input" in
+        m|M) restart_main_menu ;;
+        t|T)
+            set_data_menu
+            restart_main_menu
+            ;;
+        w|W)
+            workspace_menu
+            restart_main_menu
+            ;;
+        h|H)
+            toolbox_quick_help
+            restart_main_menu
+            ;;
+    esac
+
+    printf -v "$variable_name" '%s' "$input"
 }
 
 header() {
     local title="$1"
+    current_menu_title="$title"
     refresh_colors
     clear 2>/dev/null || true
     printf '%b\n' "${C_CYAN}${C_BOLD}========================================${C_RESET}"
@@ -316,7 +367,17 @@ header() {
     printf '%b\n' "${C_CYAN}${C_BOLD}========================================${C_RESET}"
     printf '%b\n' "Target : ${C_YELLOW}${ip}/${subnet}${C_RESET}   Ports: ${C_YELLOW}${port}${C_RESET}"
     printf '%b\n' "Output : ${C_BLUE}${output_folder}${C_RESET}"
+    if [[ "$workspace_loaded" == true ]]; then
+        printf '%b\n' "Project: ${C_MAGENTA}${workspace_name}${C_RESET}"
+    else
+        printf '%b\n' "Project: ${C_DIM}None${C_RESET}"
+    fi
     printf '%b\n' "Modes  : Save $(toggle_status "$auto_save_output")  Verbose $(toggle_status "$verbose_mode")  Dry-Run $(toggle_status "$dry_run_mode")"
+    if (( EUID == 0 )); then
+        printf '%b\n' "User   : ${C_RED}${C_BOLD}$(id -un) [ROOT]${C_RESET}"
+    else
+        printf '%b\n' "User   : ${C_GREEN}$(id -un) [standard]${C_RESET}"
+    fi
     echo ""
 }
 
@@ -472,6 +533,18 @@ record_command_history() {
     fi
 }
 
+
+record_command_result() {
+    local status="$1" logfile="${2:-}" history_file entry
+    entry="$(date '+%Y-%m-%d %H:%M:%S') [RESULT] target=$ip/$subnet exit=$status"
+    [[ -n "$logfile" ]] && entry+=" output=$logfile"
+    command_history+=("$entry")
+    if ensure_output_folder >/dev/null 2>&1; then
+        history_file="${output_folder%/}/tool_box_command_history.log"
+        printf '%s\n' "$entry" >> "$history_file" 2>/dev/null || true
+    fi
+}
+
 confirm_elevated_command() {
     local confirm
     if [[ "$command_requires_privilege" != true ]]; then
@@ -533,6 +606,7 @@ run_command() {
     echo ""
     "${command[@]}"
     status=$?
+    record_command_result "$status"
     command_requires_privilege=false
     echo ""
     if (( status == 0 )); then
@@ -594,9 +668,11 @@ run_command_logged() {
     if [[ "$auto_save_output" == true ]]; then
         "${command[@]}" 2>&1 | tee "$logfile"
         status=${PIPESTATUS[0]}
+        record_command_result "$status" "$logfile"
     else
         "${command[@]}"
         status=$?
+        record_command_result "$status"
     fi
     command_requires_privilege=false
 
@@ -661,9 +737,11 @@ run_command_logged_stdin_null() {
     if [[ "$auto_save_output" == true ]]; then
         "${command[@]}" </dev/null 2>&1 | tee "$logfile"
         status=${PIPESTATUS[0]}
+        record_command_result "$status" "$logfile"
     else
         "${command[@]}" </dev/null
         status=$?
+        record_command_result "$status"
     fi
     command_requires_privilege=false
 
@@ -1652,6 +1730,7 @@ set_ip() {
            (( c >= 0 && c <= 255 )) &&
            (( d >= 0 && d <= 255 )); then
             ip="$iptemp"
+            [[ "$workspace_loaded" == true ]] && workspace_save_state >/dev/null 2>&1 || true
             echo "Valid IP: $ip"
             pause
             return
@@ -1671,6 +1750,7 @@ set_subnet() {
 
         if [[ "$subnettemp" =~ ^[0-9]+$ ]] && (( subnettemp >= 1 && subnettemp <= 32 )); then
             subnet="$subnettemp"
+            [[ "$workspace_loaded" == true ]] && workspace_save_state >/dev/null 2>&1 || true
             echo "Valid subnet: /$subnet"
             pause
             return
@@ -1713,6 +1793,7 @@ set_ports() {
         read -r -a port_parts <<< "$normalized"
         if [[ "$valid" == true && ${#port_parts[@]} -gt 0 ]]; then
             port=$(IFS=,; echo "${port_parts[*]}")
+            [[ "$workspace_loaded" == true ]] && workspace_save_state >/dev/null 2>&1 || true
             echo "Valid ports: $port"
             pause
             return
@@ -1763,6 +1844,7 @@ set_output_folder() {
         }
 
         output_folder="$foldertemp"
+        [[ "$workspace_loaded" == true ]] && workspace_save_state >/dev/null 2>&1 || true
         echo "Output folder set to: $output_folder"
         pause
         return
@@ -2284,6 +2366,573 @@ web_enumeration_menu() {
     done
 }
 
+
+# -------------------------
+# Workspaces / Projects
+# -------------------------
+workspace_root_path() {
+    printf '%s/workspaces' "${output_folder%/}"
+}
+
+sanitize_workspace_name() {
+    local value="$1"
+    value="${value// /_}"
+    value="${value//[^A-Za-z0-9._-]/_}"
+    value="${value##_}"
+    value="${value%%_}"
+    printf '%s' "$value"
+}
+
+require_workspace() {
+    if [[ "$workspace_loaded" != true || -z "$workspace_dir" || ! -d "$workspace_dir" ]]; then
+        msg_error "No workspace is currently loaded."
+        msg_info "Open Target & Scanning -> Workspace / Project first."
+        pause
+        return 1
+    fi
+    return 0
+}
+
+workspace_save_state() {
+    local state_file
+    [[ "$workspace_loaded" == true && -n "$workspace_dir" ]] || return 1
+    mkdir -p -- "$workspace_dir" || return 1
+    state_file="$workspace_dir/workspace.conf"
+    {
+        printf 'workspace_name=%s\n' "$workspace_name"
+        printf 'ip=%s\n' "$ip"
+        printf 'subnet=%s\n' "$subnet"
+        printf 'port=%s\n' "$port"
+        printf 'default_wordlist=%s\n' "$default_wordlist"
+        printf 'default_threads=%s\n' "$default_threads"
+        printf 'output_folder=%s\n' "$output_folder"
+        printf 'updated=%s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+    } > "$state_file" || return 1
+    chmod 600 "$state_file" 2>/dev/null || true
+    return 0
+}
+
+create_workspace() {
+    local root requested safe confirm
+    header "Tool_Box - Create Workspace"
+    root="$(workspace_root_path)"
+    mkdir -p -- "$root" || { msg_error "Unable to create workspace root: $root"; pause; return 1; }
+    read -r -p "Workspace name: " requested
+    safe="$(sanitize_workspace_name "$requested")"
+    [[ -n "$safe" ]] || { msg_error "Workspace name cannot be empty."; pause; return 1; }
+
+    if [[ -e "$root/$safe" ]]; then
+        msg_warn "Workspace already exists: $safe"
+        read -r -p "Load the existing workspace instead? [y/N]: " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || { pause; return 0; }
+        workspace_name="$safe"
+        workspace_dir="$root/$safe"
+        workspace_loaded=true
+        load_workspace_state_file "$workspace_dir/workspace.conf"
+        msg_success "Loaded workspace: $workspace_name"
+        pause
+        return 0
+    fi
+
+    workspace_name="$safe"
+    workspace_dir="$root/$safe"
+    workspace_loaded=true
+    mkdir -p -- "$workspace_dir" || { msg_error "Unable to create workspace."; workspace_loaded=false; pause; return 1; }
+    : > "$workspace_dir/notes.md"
+    : > "$workspace_dir/findings.tsv"
+    : > "$workspace_dir/services.tsv"
+    chmod 600 "$workspace_dir/findings.tsv" "$workspace_dir/workspace.conf" 2>/dev/null || true
+    workspace_save_state
+    msg_success "Created workspace: $workspace_name"
+    echo "Workspace directory: $workspace_dir"
+    pause
+}
+
+load_workspace_state_file() {
+    local state_file="$1" line key value
+    [[ -f "$state_file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == *=* ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            workspace_name) [[ -n "$value" ]] && workspace_name="$value" ;;
+            ip) [[ -n "$value" ]] && ip="$value" ;;
+            subnet) [[ "$value" =~ ^[0-9]+$ ]] && subnet="$value" ;;
+            port) [[ -n "$value" ]] && port="$value" ;;
+            default_wordlist) [[ -n "$value" ]] && default_wordlist="$value" ;;
+            default_threads) [[ "$value" =~ ^[0-9]+$ ]] && default_threads="$value" ;;
+            output_folder) [[ -n "$value" ]] && output_folder="$value" ;;
+        esac
+    done < "$state_file"
+}
+
+select_workspace() {
+    local root choice i
+    local -a dirs=()
+    root="$(workspace_root_path)"
+    mkdir -p -- "$root" 2>/dev/null || true
+    mapfile -t dirs < <(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+    header "Tool_Box - Load Workspace"
+    if ((${#dirs[@]} == 0)); then
+        echo "No workspaces exist under: $root"
+        pause
+        return 1
+    fi
+    for ((i=0; i<${#dirs[@]}; i++)); do
+        printf ' %2d) %s\n' "$((i+1))" "${dirs[$i]}"
+    done
+    echo "  0) Cancel"
+    echo ""
+    menu_prompt choice
+    [[ "$choice" == 0 ]] && return 1
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#dirs[@]} )); then
+        workspace_name="${dirs[$((choice-1))]}"
+        workspace_dir="$root/$workspace_name"
+        workspace_loaded=true
+        load_workspace_state_file "$workspace_dir/workspace.conf"
+        workspace_save_state
+        msg_success "Loaded workspace: $workspace_name"
+        pause
+        return 0
+    fi
+    msg_error "Invalid workspace selection."
+    pause
+    return 1
+}
+
+list_workspaces() {
+    local root dir
+    header "Tool_Box - Workspaces"
+    root="$(workspace_root_path)"
+    if [[ ! -d "$root" ]]; then
+        echo "No workspaces have been created yet."
+    else
+        while IFS= read -r dir; do
+            printf ' - %s\n' "$(basename "$dir")"
+        done < <(find "$root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    fi
+    echo ""
+    echo "Workspace root: $root"
+    pause
+}
+
+unload_workspace() {
+    header "Tool_Box - Unload Workspace"
+    if [[ "$workspace_loaded" != true ]]; then
+        msg_info "No workspace is loaded."
+        pause
+        return 0
+    fi
+    workspace_save_state
+    msg_success "Unloaded workspace: $workspace_name"
+    workspace_name=""
+    workspace_dir=""
+    workspace_loaded=false
+    pause
+}
+
+archive_workspace() {
+    local archive_root archive_file confirm
+    require_workspace || return 1
+    header "Tool_Box - Archive Workspace"
+    archive_root="${output_folder%/}/workspace_archives"
+    mkdir -p -- "$archive_root" || { msg_error "Unable to create archive directory."; pause; return 1; }
+    archive_file="$archive_root/${workspace_name}-$(date +%Y-%m-%d_%H-%M-%S).tar.gz"
+    echo "Workspace: $workspace_dir"
+    echo "Archive  : $archive_file"
+    read -r -p "Create archive? [y/N]: " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || { msg_warn "Cancelled."; pause; return 0; }
+    tar -czf "$archive_file" -C "$(dirname "$workspace_dir")" "$(basename "$workspace_dir")" && \
+        msg_success "Created: $archive_file"
+    pause
+}
+
+
+delete_workspace() {
+    local root resolved_root resolved_dir typed
+    require_workspace || return 1
+    header "Tool_Box - Delete Workspace"
+    root="$(workspace_root_path)"
+    resolved_root="$(realpath -m -- "$root" 2>/dev/null)"
+    resolved_dir="$(realpath -m -- "$workspace_dir" 2>/dev/null)"
+    if [[ -z "$resolved_root" || -z "$resolved_dir" || "$resolved_dir" != "$resolved_root"/* ]]; then
+        msg_error "Refusing to delete a directory outside the workspace root."
+        pause
+        return 1
+    fi
+    msg_warn "This permanently deletes workspace metadata, notes, findings, and imported services."
+    echo "Workspace: $workspace_name"
+    echo "Path     : $resolved_dir"
+    echo ""
+    read -r -p "Type the workspace name to confirm deletion: " typed
+    [[ "$typed" == "$workspace_name" ]] || { msg_warn "Confirmation did not match. Cancelled."; pause; return 0; }
+    rm -rf -- "$resolved_dir" && {
+        msg_success "Workspace deleted."
+        workspace_name=""
+        workspace_dir=""
+        workspace_loaded=false
+    }
+    pause
+}
+
+workspace_notes_menu() {
+    local choice note category editor notes_file
+    require_workspace || return 1
+    notes_file="$workspace_dir/notes.md"
+    touch "$notes_file"
+    while true; do
+        header "Tool_Box - Workspace Notes"
+        echo "Workspace: $workspace_name"
+        echo "Notes    : $notes_file"
+        echo ""
+        echo " 1) Add Note"
+        echo " 2) View Notes"
+        echo " 3) Edit Notes in Editor"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1)
+                read -r -p "Category (General/To-Do/Credentials/Host/etc.): " category
+                [[ -n "$category" ]] || category="General"
+                read -r -p "Note: " note
+                [[ -n "$note" ]] || { msg_warn "Nothing added."; pause; continue; }
+                {
+                    printf '\n### %s - %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$category"
+                    printf '%s\n' "$note"
+                } >> "$notes_file"
+                workspace_save_state
+                msg_success "Note added."
+                pause
+                ;;
+            2)
+                header "Tool_Box - Workspace Notes - $workspace_name"
+                if [[ -s "$notes_file" ]]; then
+                    if command -v less >/dev/null 2>&1; then less "$notes_file"; else cat "$notes_file"; pause; fi
+                else
+                    echo "No notes yet."
+                    pause
+                fi
+                ;;
+            3)
+                editor="${EDITOR:-}"
+                if [[ -z "$editor" ]]; then
+                    if command -v nano >/dev/null 2>&1; then editor="nano"; elif command -v vi >/dev/null 2>&1; then editor="vi"; fi
+                fi
+                if [[ -n "$editor" ]]; then
+                    "$editor" "$notes_file"
+                    workspace_save_state
+                else
+                    msg_error "No editor was found. Set EDITOR or install nano/vi."
+                    pause
+                fi
+                ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+workspace_findings_menu() {
+    local choice category value search findings_file
+    require_workspace || return 1
+    findings_file="$workspace_dir/findings.tsv"
+    touch "$findings_file"
+    chmod 600 "$findings_file" 2>/dev/null || true
+    while true; do
+        header "Tool_Box - Findings / Loot Tracker"
+        echo "Workspace: $workspace_name"
+        echo ""
+        msg_warn "Findings are stored locally in plaintext. Protect the workspace directory."
+        echo ""
+        echo " 1) Add Finding"
+        echo " 2) View Findings"
+        echo " 3) Search Findings"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1)
+                echo "Categories: host, service, username, credential, url, file, hash, other"
+                read -r -p "Category: " category
+                [[ -n "$category" ]] || category="other"
+                read -r -p "Finding: " value
+                [[ -n "$value" ]] || { msg_warn "Nothing added."; pause; continue; }
+                value="${value//$'\t'/ }"
+                printf '%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$category" "$value" >> "$findings_file"
+                workspace_save_state
+                msg_success "Finding saved."
+                pause
+                ;;
+            2)
+                header "Tool_Box - Findings - $workspace_name"
+                if [[ -s "$findings_file" ]]; then
+                    printf '%-20s %-14s %s\n' "Timestamp" "Category" "Finding"
+                    echo "--------------------------------------------------------------------------"
+                    awk -F '\t' '{printf "%-20s %-14s %s\\n", $1, $2, $3}' "$findings_file"
+                else
+                    echo "No findings yet."
+                fi
+                echo ""
+                pause
+                ;;
+            3)
+                read -r -p "Search term: " search
+                header "Tool_Box - Search Findings"
+                if [[ -n "$search" ]]; then
+                    grep -in -- "$search" "$findings_file" || echo "No matches."
+                fi
+                echo ""
+                pause
+                ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+workspace_services_file() {
+    [[ "$workspace_loaded" == true ]] && printf '%s/services.tsv' "$workspace_dir"
+}
+
+import_nmap_results() {
+    local scan_file services_file temp_file parser_output first_host imported_ports count rc
+    require_workspace || return 1
+    header "Tool_Box - Import Nmap Results"
+    echo "Supported: Nmap XML, grepable (.gnmap), and normal text output."
+    echo ""
+    read -r -p "Nmap result file: " scan_file
+    [[ -f "$scan_file" ]] || { msg_error "File not found."; pause; return 1; }
+    command -v python3 >/dev/null 2>&1 || { msg_error "python3 is required for Nmap import."; pause; return 1; }
+
+    services_file="$(workspace_services_file)"
+    temp_file="${services_file}.tmp"
+    parser_output=$(python3 - "$scan_file" "$temp_file" <<'PYCODE'
+import sys, re, xml.etree.ElementTree as ET
+src, out = sys.argv[1], sys.argv[2]
+rows=[]
+first_host=""
+text=open(src,'r',errors='replace').read()
+
+def add(host, proto, port, service="", product="", version=""):
+    global first_host
+    if not first_host and host:
+        first_host=host
+    row=(host or "", proto or "", str(port or ""), service or "", product or "", version or "")
+    if row not in rows:
+        rows.append(row)
+
+is_xml = src.lower().endswith('.xml') or text.lstrip().startswith('<?xml') or '<nmaprun' in text[:500]
+if is_xml:
+    try:
+        root=ET.fromstring(text)
+        for host in root.findall('host'):
+            addr=''
+            for a in host.findall('address'):
+                if a.get('addrtype') in ('ipv4','ipv6'):
+                    addr=a.get('addr',''); break
+            for p in host.findall('./ports/port'):
+                state=p.find('state')
+                if state is None or state.get('state')!='open':
+                    continue
+                svc=p.find('service')
+                add(addr,p.get('protocol',''),p.get('portid',''),
+                    svc.get('name','') if svc is not None else '',
+                    svc.get('product','') if svc is not None else '',
+                    svc.get('version','') if svc is not None else '')
+    except Exception as e:
+        print(f'ERROR={e}')
+        sys.exit(2)
+elif 'Ports:' in text:
+    for line in text.splitlines():
+        m=re.search(r'^Host:\s+(\S+).*?Ports:\s+(.*?)(?:\s+Ignored State:|$)', line)
+        if not m: continue
+        host=m.group(1)
+        for item in m.group(2).split(','):
+            parts=item.strip().split('/')
+            if len(parts)>=5 and parts[1]=='open':
+                add(host, parts[2], parts[0], parts[4])
+else:
+    current=''
+    for line in text.splitlines():
+        m=re.search(r'Nmap scan report for (?:.*?\()?((?:\d{1,3}\.){3}\d{1,3})\)?$', line)
+        if m: current=m.group(1)
+        m=re.match(r'^(\d+)/(tcp|udp)\s+open\s+(\S+)(?:\s+(.*))?$', line.strip())
+        if m:
+            extra=(m.group(4) or '').strip()
+            add(current, m.group(2), m.group(1), m.group(3), extra, '')
+
+rows.sort(key=lambda r:(r[0],r[1],int(r[2]) if str(r[2]).isdigit() else 0))
+with open(out,'w') as f:
+    for r in rows:
+        f.write('\t'.join(x.replace('\t',' ') for x in r)+'\n')
+ports=sorted({int(r[2]) for r in rows if str(r[2]).isdigit()})
+print('HOST='+first_host)
+print('PORTS='+','.join(map(str,ports)))
+print('COUNT='+str(len(rows)))
+PYCODE
+)
+    rc=$?
+    if (( rc != 0 )); then
+        rm -f "$temp_file"
+        msg_error "Unable to parse Nmap results."
+        echo "$parser_output"
+        pause
+        return "$rc"
+    fi
+    mv -- "$temp_file" "$services_file"
+    first_host="$(printf '%s\n' "$parser_output" | sed -n 's/^HOST=//p' | head -n1)"
+    imported_ports="$(printf '%s\n' "$parser_output" | sed -n 's/^PORTS=//p' | head -n1)"
+    count="$(printf '%s\n' "$parser_output" | sed -n 's/^COUNT=//p' | head -n1)"
+
+    if [[ "$first_host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        ip="$first_host"
+    fi
+    [[ -n "$imported_ports" ]] && port="$imported_ports"
+    workspace_save_state
+    msg_success "Imported ${count:-0} open service entries."
+    echo "Service inventory: $services_file"
+    [[ -n "$first_host" ]] && echo "Current target updated to first imported host: $ip"
+    [[ -n "$imported_ports" ]] && echo "Selected ports updated to: $port"
+    echo ""
+    pause
+}
+
+service_recommendation() {
+    local service="${1,,}" p="$2"
+    case "$p" in
+        21) echo "FTP -> Service Enumeration" ;;
+        22) echo "SSH -> Service Enumeration" ;;
+        23) echo "Telnet -> Service Enumeration" ;;
+        25|465|587) echo "SMTP -> Service Enumeration" ;;
+        53) echo "DNS -> Network / DNS" ;;
+        80|443|8000|8008|8080|8081|8443|8888) echo "HTTP(S) -> Web Enumeration" ;;
+        111) echo "RPC -> Service Enumeration" ;;
+        139|445) echo "SMB -> SMB / Windows" ;;
+        161|162) echo "SNMP -> Service Enumeration" ;;
+        389|636) echo "LDAP -> Service Enumeration" ;;
+        2049) echo "NFS -> Service Enumeration" ;;
+        3306) echo "MySQL -> Service Enumeration" ;;
+        3389) echo "RDP -> SMB / Windows / Service Enumeration" ;;
+        5432) echo "PostgreSQL -> Service Enumeration" ;;
+        *)
+            case "$service" in
+                http*|ssl/http*) echo "Web service -> Web Enumeration" ;;
+                microsoft-ds|netbios*) echo "SMB -> SMB / Windows" ;;
+                domain) echo "DNS -> Network / DNS" ;;
+                ssh|ftp|smtp|snmp|ldap|rpcbind|nfs) echo "$service -> Service Enumeration" ;;
+                *) echo "General service -> Reconnaissance / Service Enumeration" ;;
+            esac
+            ;;
+    esac
+}
+
+service_recommendations_page() {
+    local services_file host proto p service product version recommendation
+    header "Tool_Box - Service-Aware Recommendations"
+    if [[ "$workspace_loaded" == true ]]; then
+        services_file="$(workspace_services_file)"
+    else
+        services_file=""
+    fi
+
+    if [[ -n "$services_file" && -s "$services_file" ]]; then
+        printf '%-15s %-5s %-6s %-18s %s\n' "Host" "Proto" "Port" "Service" "Recommended Tool_Box Area"
+        echo "------------------------------------------------------------------------------------------"
+        while IFS=$'\t' read -r host proto p service product version; do
+            recommendation="$(service_recommendation "$service" "$p")"
+            printf '%-15s %-5s %-6s %-18s %s\n' "$host" "$proto" "$p" "${service:-unknown}" "$recommendation"
+        done < "$services_file"
+    else
+        msg_info "No imported service inventory is available. Recommendations based on selected ports:"
+        echo ""
+        IFS=',' read -ra selected_ports <<< "$port"
+        for p in "${selected_ports[@]}"; do
+            p="${p%%-*}"
+            [[ "$p" =~ ^[0-9]+$ ]] || continue
+            printf ' Port %-6s %s\n' "$p" "$(service_recommendation "" "$p")"
+        done
+    fi
+    echo ""
+    echo "Recommendations do not automatically run scans; they point you to the relevant existing menu."
+    pause
+}
+
+workspace_dashboard() {
+    local notes findings services result_dir files=0 notes_count=0 findings_count=0 services_count=0 size="0"
+    require_workspace || return 1
+    notes="$workspace_dir/notes.md"
+    findings="$workspace_dir/findings.tsv"
+    services="$workspace_dir/services.tsv"
+    result_dir="${output_folder%/}/$(safe_target_name)"
+    [[ -d "$result_dir" ]] && files="$(find "$result_dir" -type f 2>/dev/null | wc -l)"
+    [[ -d "$result_dir" ]] && size="$(du -sh "$result_dir" 2>/dev/null | awk '{print $1}')"
+    [[ -f "$notes" ]] && notes_count="$(grep -c '^### ' "$notes" 2>/dev/null || true)"
+    [[ -f "$findings" ]] && findings_count="$(grep -cve '^$' "$findings" 2>/dev/null || true)"
+    [[ -f "$services" ]] && services_count="$(grep -cve '^$' "$services" 2>/dev/null || true)"
+
+    header "Tool_Box - Workspace Dashboard"
+    echo "Workspace       : $workspace_name"
+    echo "Workspace path  : $workspace_dir"
+    echo "Target          : $ip/$subnet"
+    echo "Selected ports  : $port"
+    echo "Result directory: $result_dir"
+    echo ""
+    printf ' Result files    : %s\n' "$files"
+    printf ' Result size     : %s\n' "${size:-0}"
+    printf ' Imported services: %s\n' "$services_count"
+    printf ' Notes           : %s\n' "$notes_count"
+    printf ' Findings        : %s\n' "$findings_count"
+    echo ""
+    pause
+}
+
+workspace_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Workspace / Project"
+        if [[ "$workspace_loaded" == true ]]; then
+            echo "Active workspace: $workspace_name"
+            echo "Path            : $workspace_dir"
+        else
+            echo "Active workspace: None"
+        fi
+        echo ""
+        echo " 1) Create Workspace"
+        echo " 2) Load Workspace"
+        echo " 3) Save Current Workspace State"
+        echo " 4) Workspace Dashboard"
+        echo " 5) Notes"
+        echo " 6) Findings / Loot Tracker"
+        echo " 7) Import Nmap Results"
+        echo " 8) Service-Aware Recommendations"
+        echo " 9) List Workspaces"
+        echo "10) Archive Current Workspace"
+        echo "11) Unload Workspace"
+        echo "12) Delete Current Workspace"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) create_workspace ;;
+            2) select_workspace ;;
+            3) require_workspace && workspace_save_state && msg_success "Workspace state saved."; pause ;;
+            4) workspace_dashboard ;;
+            5) workspace_notes_menu ;;
+            6) workspace_findings_menu ;;
+            7) import_nmap_results ;;
+            8) service_recommendations_page ;;
+            9) list_workspaces ;;
+            10) archive_workspace ;;
+            11) unload_workspace ;;
+            12) delete_workspace ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
 # -------------------------
 # Reconnaissance
 # -------------------------
@@ -2443,21 +3092,26 @@ dns_lookup_menu() {
 }
 
 reverse_dns_menu() {
-    local choice
+    local choice query="$ip"
     while true; do
-        command=(dig -x "$ip")
+        command=(dig -x "$query")
         refresh_software_status dig
         header "Tool_Box - Reverse DNS"
         echo "Dig Status: $(software_status_text dig)"
         show_command
         echo ""
-        echo " 1) Run Reverse DNS"
-        echo " 2) View Dig Man Page / Help"
+        echo " 1) IP Address: $query  [custom allowed]"
+        echo " 2) Run Reverse DNS"
+        echo " 3) View Dig Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program dig && run_command_logged "dns" "reverse-dns" || pause ;;
-            2) view_man_page dig ;;
+            1)
+                read -r -p "Enter IP address: " query
+                [[ -n "$query" ]] || query="$ip"
+                ;;
+            2) require_program dig && run_command_logged "dns" "reverse-dns" || pause ;;
+            3) view_man_page dig ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2473,15 +3127,20 @@ whois_menu() {
         echo "Status: $(software_status_text whois)"
         show_command
         echo ""
-        echo " 1) Query: $query"
+        echo " 1) IP / Domain: $query  [custom allowed]"
         echo " 2) Run WHOIS"
-        echo " 3) View WHOIS Man Page / Help"
+        echo " 3) Reset to Global Target ($ip)"
+        echo " 4) View WHOIS Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) read -r -p "Enter IP or domain: " query ;;
+            1)
+                read -r -p "Enter IP or domain: " query
+                [[ -n "$query" ]] || query="$ip"
+                ;;
             2) require_program whois && run_command_logged "recon" "whois" || pause ;;
-            3) view_man_page whois ;;
+            3) query="$ip" ;;
+            4) view_man_page whois ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2489,21 +3148,28 @@ whois_menu() {
 }
 
 traceroute_menu() {
-    local choice
+    local choice target="$ip"
     while true; do
-        command=(traceroute "$ip")
+        command=(traceroute "$target")
         refresh_software_status traceroute
         header "Tool_Box - Traceroute"
         echo "Status: $(software_status_text traceroute)"
         show_command
         echo ""
-        echo " 1) Run Traceroute"
-        echo " 2) View Traceroute Man Page / Help"
+        echo " 1) Target: $target  [custom IP/domain allowed]"
+        echo " 2) Run Traceroute"
+        echo " 3) Reset to Global Target ($ip)"
+        echo " 4) View Traceroute Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program traceroute && run_command_logged "network" "traceroute" || pause ;;
-            2) view_man_page traceroute ;;
+            1)
+                read -r -p "Enter IP or domain: " target
+                [[ -n "$target" ]] || target="$ip"
+                ;;
+            2) require_program traceroute && run_command_logged "network" "traceroute" || pause ;;
+            3) target="$ip" ;;
+            4) view_man_page traceroute ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2533,24 +3199,31 @@ arp_scan_menu() {
 }
 
 netcat_test_menu() {
-    local choice nc_port
+    local choice nc_port target="$ip"
     nc_port="$(get_first_port)"
     while true; do
-        command=(nc -vz -w 3 "$ip" "$nc_port")
+        command=(nc -vz -w 3 "$target" "$nc_port")
         refresh_software_status nc
         header "Tool_Box - Netcat TCP Test"
         echo "Netcat Status: $(software_status_text nc)"
         show_command
         echo ""
-        echo " 1) Port: $nc_port"
-        echo " 2) Run TCP Connection Test"
-        echo " 3) View Netcat Man Page / Help"
+        echo " 1) Target: $target  [custom IP/domain allowed]"
+        echo " 2) Port: $nc_port"
+        echo " 3) Run TCP Connection Test"
+        echo " 4) Reset to Global Target ($ip)"
+        echo " 5) View Netcat Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) read -r -p "Enter port: " nc_port; validate_port "$nc_port" || nc_port="$(get_first_port)" ;;
-            2) require_program nc && run_command_logged "network" "netcat-test" || pause ;;
-            3) view_man_page nc ;;
+            1)
+                read -r -p "Enter IP or domain: " target
+                [[ -n "$target" ]] || target="$ip"
+                ;;
+            2) read -r -p "Enter port: " nc_port; validate_port "$nc_port" || nc_port="$(get_first_port)" ;;
+            3) require_program nc && run_command_logged "network" "netcat-test" || pause ;;
+            4) target="$ip" ;;
+            5) view_man_page nc ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3698,7 +4371,39 @@ generate_markdown_report() {
         echo "- Selected ports: $port"
         echo "- Generated: $(date '+%Y-%m-%d %H:%M:%S %Z')"
         echo "- Tool_Box version: $ver"
+        if [[ "$workspace_loaded" == true ]]; then
+            echo "- Workspace: $workspace_name"
+            echo "- Workspace path: $workspace_dir"
+        fi
         echo ""
+
+        if [[ "$workspace_loaded" == true && -s "$workspace_dir/services.tsv" ]]; then
+            echo "## Imported Services"
+            echo ""
+            echo '| Host | Protocol | Port | Service | Product | Version |'
+            echo '|---|---|---:|---|---|---|'
+            while IFS=$'\t' read -r whost wproto wport wservice wproduct wversion; do
+                printf '| %s | %s | %s | %s | %s | %s |\n' "$whost" "$wproto" "$wport" "$wservice" "$wproduct" "$wversion"
+            done < "$workspace_dir/services.tsv"
+            echo ""
+        fi
+
+        if [[ "$workspace_loaded" == true && -s "$workspace_dir/findings.tsv" ]]; then
+            echo "## Findings"
+            echo ""
+            while IFS=$'\t' read -r wtime wcategory wvalue; do
+                printf -- '- **%s** [%s] %s\n' "$wtime" "$wcategory" "$wvalue"
+            done < "$workspace_dir/findings.tsv"
+            echo ""
+        fi
+
+        if [[ "$workspace_loaded" == true && -s "$workspace_dir/notes.md" ]]; then
+            echo "## Workspace Notes"
+            echo ""
+            cat "$workspace_dir/notes.md"
+            echo ""
+        fi
+
         echo "## Result Files"
         echo ""
 
@@ -3783,12 +4488,73 @@ command_history_menu() {
     header "Tool_Box - Command History"
     history_file="${output_folder%/}/tool_box_command_history.log"
     if ((${#command_history[@]} > 0)); then
-        printf '%s
-' "${command_history[@]}"
+        printf '%s\n' "${command_history[@]}"
     elif [[ -f "$history_file" ]]; then
         tail -n 100 "$history_file"
     else
         echo "No Tool_Box commands have been recorded yet."
+    fi
+    echo ""
+    pause
+}
+
+search_command_history() {
+    local history_file term
+    history_file="${output_folder%/}/tool_box_command_history.log"
+    header "Tool_Box - Search Command History"
+    read -r -p "Search term: " term
+    echo ""
+    if [[ -z "$term" ]]; then
+        msg_warn "No search term entered."
+    elif [[ -f "$history_file" ]]; then
+        grep -in -- "$term" "$history_file" | tail -n 100 || echo "No matches."
+    else
+        printf '%s\n' "${command_history[@]}" | grep -in -- "$term" || echo "No matches."
+    fi
+    echo ""
+    pause
+}
+
+search_target_results() {
+    local target_dir term
+    target_dir="${output_folder%/}/$(safe_target_name)"
+    header "Tool_Box - Search Target Results"
+    echo "Directory: $target_dir"
+    echo ""
+    [[ -d "$target_dir" ]] || { msg_warn "No current target result directory exists."; pause; return 0; }
+    read -r -p "Search text: " term
+    [[ -n "$term" ]] || { msg_warn "No search term entered."; pause; return 0; }
+    echo ""
+    grep -RInI --exclude='*.pcap' --exclude='*.pcapng' -- "$term" "$target_dir" 2>/dev/null | head -n 200 || true
+    if [[ "$workspace_loaded" == true ]]; then
+        [[ -f "$workspace_dir/notes.md" ]] && grep -Hni -- "$term" "$workspace_dir/notes.md" 2>/dev/null || true
+        [[ -f "$workspace_dir/findings.tsv" ]] && grep -Hni -- "$term" "$workspace_dir/findings.tsv" 2>/dev/null || true
+    fi
+    echo ""
+    pause
+}
+
+results_dashboard() {
+    local target_dir files=0 size="0" categories=0 history_count=0
+    target_dir="${output_folder%/}/$(safe_target_name)"
+    [[ -d "$target_dir" ]] && files="$(find "$target_dir" -type f 2>/dev/null | wc -l)"
+    [[ -d "$target_dir" ]] && categories="$(find "$target_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
+    [[ -d "$target_dir" ]] && size="$(du -sh "$target_dir" 2>/dev/null | awk '{print $1}')"
+    [[ -f "${output_folder%/}/tool_box_command_history.log" ]] && history_count="$(wc -l < "${output_folder%/}/tool_box_command_history.log")"
+    header "Tool_Box - Results Dashboard"
+    echo "Target          : $ip/$subnet"
+    echo "Selected ports  : $port"
+    echo "Result directory: $target_dir"
+    echo ""
+    echo "Result files    : $files"
+    echo "Result categories: $categories"
+    echo "Result size     : ${size:-0}"
+    echo "History entries : $history_count"
+    if [[ "$workspace_loaded" == true ]]; then
+        echo "Workspace       : $workspace_name"
+        echo "Imported services: $(grep -cve '^$' "$workspace_dir/services.tsv" 2>/dev/null || true)"
+        echo "Findings        : $(grep -cve '^$' "$workspace_dir/findings.tsv" 2>/dev/null || true)"
+        echo "Notes           : $(grep -c '^### ' "$workspace_dir/notes.md" 2>/dev/null || true)"
     fi
     echo ""
     pause
@@ -3801,33 +4567,39 @@ results_menu() {
         echo "Root: $output_folder"
         echo "Target directory: ${output_folder%/}/$(safe_target_name)"
         echo ""
-        echo " 1) List Targets with Results"
-        echo " 2) List Recent Result Files"
-        echo " 3) View a Text Result"
-        echo " 4) Show Current Target Result Directory"
-        echo " 5) Compare Two Text Results"
-        echo " 6) Generate Markdown Target Report"
-        echo " 7) Archive Current Target Results"
-        echo " 8) Delete a Result File"
-        echo " 9) View Tool_Box Command History"
+        echo " 1) Results Dashboard"
+        echo " 2) List Targets with Results"
+        echo " 3) List Recent Result Files"
+        echo " 4) View a Text Result"
+        echo " 5) Show Current Target Result Directory"
+        echo " 6) Search Current Target Results"
+        echo " 7) Compare Two Text Results"
+        echo " 8) Generate Markdown Target Report"
+        echo " 9) Archive Current Target Results"
+        echo "10) Delete a Result File"
+        echo "11) View Tool_Box Command History"
+        echo "12) Search Tool_Box Command History"
         echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
-            1) results_list_targets ;;
-            2) results_recent_files ;;
-            3) results_view_file ;;
-            4)
+            1) results_dashboard ;;
+            2) results_list_targets ;;
+            3) results_recent_files ;;
+            4) results_view_file ;;
+            5)
                 header "Tool_Box - Target Result Directory"
                 echo "${output_folder%/}/$(safe_target_name)"
                 echo ""
                 pause
                 ;;
-            5) results_compare_files ;;
-            6) generate_markdown_report ;;
-            7) archive_target_results ;;
-            8) delete_result_file ;;
-            9) command_history_menu ;;
+            6) search_target_results ;;
+            7) results_compare_files ;;
+            8) generate_markdown_report ;;
+            9) archive_target_results ;;
+            10) delete_result_file ;;
+            11) command_history_menu ;;
+            12) search_command_history ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3892,6 +4664,335 @@ utilities_menu() {
             *) echo "Invalid option."; pause ;;
         esac
     done
+}
+
+
+# -------------------------
+# Workflow / utility helpers
+# -------------------------
+copy_to_clipboard() {
+    local text="$1"
+    if command -v wl-copy >/dev/null 2>&1; then
+        printf '%s' "$text" | wl-copy && return 0
+    fi
+    if command -v xclip >/dev/null 2>&1; then
+        printf '%s' "$text" | xclip -selection clipboard && return 0
+    fi
+    if command -v xsel >/dev/null 2>&1; then
+        printf '%s' "$text" | xsel --clipboard --input && return 0
+    fi
+    return 1
+}
+
+network_information_page() {
+    header "Tool_Box - Network Information"
+    echo "Interfaces:"
+    if command -v ip >/dev/null 2>&1; then
+        ip -br addr 2>/dev/null || ip addr
+        echo ""
+        echo "Default route / routes:"
+        ip route 2>/dev/null || true
+        echo ""
+        echo "Neighbors:"
+        ip neigh 2>/dev/null || true
+    else
+        echo "The ip command is not installed."
+    fi
+    echo ""
+    echo "DNS:"
+    if command -v resolvectl >/dev/null 2>&1; then
+        resolvectl status 2>/dev/null | sed -n '1,80p'
+    elif [[ -r /etc/resolv.conf ]]; then
+        cat /etc/resolv.conf
+    else
+        echo "DNS configuration unavailable."
+    fi
+    echo ""
+    pause
+}
+
+vpn_status_page() {
+    local found=0 iface
+    header "Tool_Box - VPN / Tunnel Status"
+    if command -v ip >/dev/null 2>&1; then
+        while IFS= read -r iface; do
+            [[ -n "$iface" ]] || continue
+            found=1
+            echo "Interface: $iface"
+            ip -br addr show dev "$iface" 2>/dev/null || true
+            ip route show dev "$iface" 2>/dev/null || true
+            echo ""
+        done < <(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | sed 's/@.*//' | grep -E '^(tun|tap|wg|tailscale|zt|vpn)' || true)
+    fi
+    if (( found == 0 )); then
+        msg_warn "No common VPN/tunnel interface was detected."
+        echo "TryHackMe OpenVPN connections commonly appear as tun0."
+    fi
+    echo ""
+    pause
+}
+
+public_ip_page() {
+    local confirm result
+    header "Tool_Box - Public IP"
+    echo "This makes a request to an external IP-check service."
+    read -r -p "Continue? [y/N]: " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || { msg_warn "Cancelled."; pause; return 0; }
+    if ! command -v curl >/dev/null 2>&1; then
+        msg_error "curl is required."
+        pause
+        return 1
+    fi
+    result="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null)"
+    if [[ -n "$result" ]]; then
+        echo "Public IP: $result"
+    else
+        msg_error "Unable to retrieve the public IP."
+    fi
+    echo ""
+    pause
+}
+
+network_info_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Network Information"
+        echo " 1) Local Interfaces / Routes / DNS"
+        echo " 2) VPN / Tunnel Status"
+        echo " 3) Public IP (external request)"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) network_information_page ;;
+            2) vpn_status_page ;;
+            3) public_ip_page ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+show_conversion_result() {
+    local label="$1" value="$2" copy_choice
+    echo ""
+    printf '%s: %s\n' "$label" "$value"
+    echo ""
+    read -r -p "Copy result to clipboard? [y/N]: " copy_choice
+    if [[ "$copy_choice" =~ ^[Yy]$ ]]; then
+        if copy_to_clipboard "$value"; then
+            msg_success "Copied to clipboard."
+        else
+            msg_warn "No usable clipboard helper was detected (wl-copy, xclip, or xsel)."
+        fi
+    fi
+    pause
+}
+
+identify_hash_format() {
+    local value="$1" guess="Unknown / unsupported pattern"
+    case "$value" in
+        '$2a$'*|'$2b$'*|'$2y$'*) guess="bcrypt" ;;
+        '$1$'*) guess="md5crypt" ;;
+        '$5$'*) guess="sha256crypt" ;;
+        '$6$'*) guess="sha512crypt" ;;
+        '$y$'*) guess="yescrypt" ;;
+        '$argon2i$'*|'$argon2d$'*|'$argon2id$'*) guess="Argon2" ;;
+        '$P$'*|'$H$'*) guess="phpass / portable PHP password hash" ;;
+        *)
+            if [[ "$value" =~ ^[A-Fa-f0-9]{32}$ ]]; then
+                guess="32 hex characters: commonly MD5 or NTLM (ambiguous without context)"
+            elif [[ "$value" =~ ^[A-Fa-f0-9]{40}$ ]]; then
+                guess="40 hex characters: commonly SHA-1"
+            elif [[ "$value" =~ ^[A-Fa-f0-9]{56}$ ]]; then
+                guess="56 hex characters: commonly SHA-224"
+            elif [[ "$value" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+                guess="64 hex characters: commonly SHA-256"
+            elif [[ "$value" =~ ^[A-Fa-f0-9]{96}$ ]]; then
+                guess="96 hex characters: commonly SHA-384"
+            elif [[ "$value" =~ ^[A-Fa-f0-9]{128}$ ]]; then
+                guess="128 hex characters: commonly SHA-512"
+            fi
+            ;;
+    esac
+    printf '%s' "$guess"
+}
+
+hash_identifier_menu() {
+    local value guess
+    header "Tool_Box - Hash Identification Helper"
+    read -r -p "Hash: " value
+    [[ -n "$value" ]] || { msg_warn "No hash entered."; pause; return 0; }
+    guess="$(identify_hash_format "$value")"
+    echo ""
+    echo "Likely format: $guess"
+    echo ""
+    msg_info "This is pattern-based identification, not proof of the hash algorithm."
+    pause
+}
+
+text_encoding_menu() {
+    local choice text result
+    while true; do
+        header "Tool_Box - Text / Encoding Tools"
+        echo " 1) Base64 Encode"
+        echo " 2) Base64 Decode"
+        echo " 3) Hex Encode"
+        echo " 4) Hex Decode"
+        echo " 5) URL Encode"
+        echo " 6) URL Decode"
+        echo " 7) SHA-256 Text Hash"
+        echo " 8) Hash Identification Helper"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1)
+                read -r -p "Text: " text
+                result="$(printf '%s' "$text" | base64 | tr -d '\n')"
+                show_conversion_result "Base64" "$result"
+                ;;
+            2)
+                read -r -p "Base64: " text
+                if result="$(printf '%s' "$text" | base64 -d 2>/dev/null)"; then
+                    show_conversion_result "Decoded" "$result"
+                else
+                    msg_error "Invalid Base64 input."
+                    pause
+                fi
+                ;;
+            3)
+                read -r -p "Text: " text
+                result="$(printf '%s' "$text" | od -An -tx1 | tr -d ' \n')"
+                show_conversion_result "Hex" "$result"
+                ;;
+            4)
+                read -r -p "Hex: " text
+                if command -v xxd >/dev/null 2>&1; then
+                    result="$(printf '%s' "$text" | xxd -r -p 2>/dev/null)"
+                    show_conversion_result "Decoded" "$result"
+                elif command -v python3 >/dev/null 2>&1; then
+                    if result="$(python3 -c 'import sys; print(bytes.fromhex(sys.argv[1]).decode("utf-8",errors="replace"),end="")' "$text" 2>/dev/null)"; then
+                        show_conversion_result "Decoded" "$result"
+                    else
+                        msg_error "Invalid hex input."
+                        pause
+                    fi
+                else
+                    msg_error "Hex decode requires xxd or python3."
+                    pause
+                fi
+                ;;
+            5)
+                read -r -p "Text: " text
+                if command -v python3 >/dev/null 2>&1; then
+                    result="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$text")"
+                    show_conversion_result "URL encoded" "$result"
+                else
+                    msg_error "python3 is required for URL encoding."
+                    pause
+                fi
+                ;;
+            6)
+                read -r -p "URL encoded text: " text
+                if command -v python3 >/dev/null 2>&1; then
+                    result="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.unquote(sys.argv[1]))' "$text")"
+                    show_conversion_result "URL decoded" "$result"
+                else
+                    msg_error "python3 is required for URL decoding."
+                    pause
+                fi
+                ;;
+            7)
+                read -r -p "Text: " text
+                if command -v sha256sum >/dev/null 2>&1; then
+                    result="$(printf '%s' "$text" | sha256sum | awk '{print $1}')"
+                elif command -v openssl >/dev/null 2>&1; then
+                    result="$(printf '%s' "$text" | openssl dgst -sha256 | awk '{print $NF}')"
+                else
+                    msg_error "sha256sum or openssl is required."
+                    pause
+                    continue
+                fi
+                show_conversion_result "SHA-256" "$result"
+                ;;
+            8) hash_identifier_menu ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+port_reference_description() {
+    local p="$1"
+    case "$p" in
+        20|21) echo "FTP - Service Enumeration" ;;
+        22) echo "SSH - Service Enumeration" ;;
+        23) echo "Telnet - Service Enumeration" ;;
+        25|465|587) echo "SMTP - Service Enumeration" ;;
+        53) echo "DNS - Network / DNS" ;;
+        67|68) echo "DHCP - Network / DNS" ;;
+        69) echo "TFTP - Service Enumeration" ;;
+        80|443|8000|8080|8443) echo "HTTP/HTTPS - Web Enumeration" ;;
+        110|995) echo "POP3/POP3S - Service Enumeration" ;;
+        111) echo "RPCbind - Service Enumeration" ;;
+        123) echo "NTP - Service Enumeration" ;;
+        135) echo "MS RPC - SMB / Windows" ;;
+        139|445) echo "SMB/NetBIOS - SMB / Windows" ;;
+        143|993) echo "IMAP/IMAPS - Service Enumeration" ;;
+        161|162) echo "SNMP - Service Enumeration" ;;
+        389|636) echo "LDAP/LDAPS - Service Enumeration" ;;
+        2049) echo "NFS - Service Enumeration" ;;
+        3306) echo "MySQL - Service Enumeration" ;;
+        3389) echo "RDP - SMB / Windows / Service Enumeration" ;;
+        5432) echo "PostgreSQL - Service Enumeration" ;;
+        5900) echo "VNC - Service Enumeration" ;;
+        *) echo "No built-in reference entry. Start with Reconnaissance / Service Enumeration." ;;
+    esac
+}
+
+port_reference_menu() {
+    local p
+    header "Tool_Box - Port Reference"
+    read -r -p "Port number: " p
+    if validate_port "$p"; then
+        echo ""
+        echo "Port $p: $(port_reference_description "$p")"
+    else
+        msg_error "Invalid port."
+    fi
+    echo ""
+    pause
+}
+
+toolbox_quick_help() {
+    header "Tool_Box - Quick Help"
+    cat <<'EOF'
+Recommended workflow
+--------------------
+1. Create/load a Workspace under Target & Scanning.
+2. Set the target, subnet, ports, output directory, and defaults.
+3. Run Nmap or a Scan Profile.
+4. Import saved Nmap XML/grepable/text output into the workspace.
+5. Review Service-Aware Recommendations.
+6. Use Notes and Findings to keep important information separate from raw output.
+7. Use Results / Reporting to search output and generate a Markdown report.
+
+Privilege guidance
+------------------
+- Most enumeration can run as a standard user.
+- Some Nmap scan types, packet capture, ARP scanning, and selected network actions need root/capabilities.
+- Tool_Box marks elevated commands and asks for confirmation.
+- System & Configuration -> Privilege / User Session can start a nested root Tool_Box.
+
+Output
+------
+- Auto-Save stores command output under the configured results directory.
+- Workspaces store project metadata, notes, findings, and imported service inventories.
+- Dry-Run previews commands without executing them.
+EOF
+    echo ""
+    pause
 }
 
 # -------------------------
@@ -4069,6 +5170,118 @@ scan_profiles_menu() {
     done
 }
 
+
+# -------------------------
+# Settings Profiles
+# -------------------------
+sanitize_profile_name() {
+    local value="$1"
+    value="${value// /_}"
+    value="${value//[^A-Za-z0-9._-]/_}"
+    printf '%s' "$value"
+}
+
+save_settings_profile() {
+    local name safe file
+    header "Tool_Box - Save Settings Profile"
+    read -r -p "Profile name: " name
+    safe="$(sanitize_profile_name "$name")"
+    [[ -n "$safe" ]] || { msg_error "Profile name cannot be empty."; pause; return 1; }
+    mkdir -p -- "$config_profiles_dir" || { msg_error "Unable to create $config_profiles_dir"; pause; return 1; }
+    file="$config_profiles_dir/$safe.conf"
+    {
+        printf 'default_threads=%s\n' "$default_threads"
+        printf 'default_wordlist=%s\n' "$default_wordlist"
+        printf 'output_folder=%s\n' "$output_folder"
+        printf 'auto_save_output=%s\n' "$auto_save_output"
+        printf 'verbose_mode=%s\n' "$verbose_mode"
+        printf 'dry_run_mode=%s\n' "$dry_run_mode"
+        printf 'color_enabled=%s\n' "$color_enabled"
+    } > "$file" || { msg_error "Unable to write profile."; pause; return 1; }
+    chmod 600 "$file" 2>/dev/null || true
+    msg_success "Saved profile: $safe"
+    pause
+}
+
+load_settings_profile_file() {
+    local file="$1" line key value
+    [[ -f "$file" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == *=* ]] || continue
+        key="${line%%=*}"; value="${line#*=}"
+        case "$key" in
+            default_threads) [[ "$value" =~ ^[0-9]+$ ]] && default_threads="$value" ;;
+            default_wordlist) default_wordlist="$value" ;;
+            output_folder) output_folder="$value" ;;
+            auto_save_output) [[ "$value" == true || "$value" == false ]] && auto_save_output="$value" ;;
+            verbose_mode) [[ "$value" == true || "$value" == false ]] && verbose_mode="$value" ;;
+            dry_run_mode) [[ "$value" == true || "$value" == false ]] && dry_run_mode="$value" ;;
+            color_enabled) [[ "$value" == true || "$value" == false ]] && color_enabled="$value" ;;
+        esac
+    done < "$file"
+    refresh_colors
+}
+
+select_settings_profile() {
+    local action="$1" choice i file confirm
+    local -a profiles=()
+    mkdir -p -- "$config_profiles_dir" 2>/dev/null || true
+    mapfile -t profiles < <(find "$config_profiles_dir" -maxdepth 1 -type f -name '*.conf' -printf '%f\n' 2>/dev/null | sort)
+    header "Tool_Box - Settings Profiles"
+    if ((${#profiles[@]} == 0)); then
+        echo "No saved settings profiles."
+        pause
+        return 1
+    fi
+    for ((i=0;i<${#profiles[@]};i++)); do printf ' %2d) %s\n' "$((i+1))" "${profiles[$i]%.conf}"; done
+    echo "  0) Cancel"
+    echo ""
+    menu_prompt choice
+    [[ "$choice" == 0 ]] && return 1
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#profiles[@]} )); then
+        msg_error "Invalid selection."; pause; return 1
+    fi
+    file="$config_profiles_dir/${profiles[$((choice-1))]}"
+    case "$action" in
+        load)
+            load_settings_profile_file "$file" && msg_success "Loaded profile: ${profiles[$((choice-1))]%.conf}"
+            ;;
+        delete)
+            read -r -p "Delete profile ${profiles[$((choice-1))]%.conf}? [y/N]: " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -- "$file" && msg_success "Profile deleted."; else msg_warn "Cancelled."; fi
+            ;;
+    esac
+    pause
+}
+
+settings_profiles_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Settings Profiles"
+        echo "Profile directory: $config_profiles_dir"
+        echo ""
+        echo " 1) Save Current Settings as Profile"
+        echo " 2) Load Profile"
+        echo " 3) Delete Profile"
+        echo " 4) List Profiles"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) save_settings_profile ;;
+            2) select_settings_profile load ;;
+            3) select_settings_profile delete ;;
+            4)
+                header "Tool_Box - Settings Profiles"
+                find "$config_profiles_dir" -maxdepth 1 -type f -name '*.conf' -printf '%f\n' 2>/dev/null | sed 's/\.conf$//' | sort
+                echo ""; pause
+                ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
 # -------------------------
 # Settings / config
 # -------------------------
@@ -4163,6 +5376,7 @@ settings_menu() {
         echo " 8) Save Configuration"
         echo " 9) Load Configuration"
         echo "10) Reset Defaults"
+        echo "11) Settings Profiles"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4183,6 +5397,7 @@ settings_menu() {
             8) save_configuration ;;
             9) load_configuration ;;
             10) reset_defaults ;;
+            11) settings_profiles_menu ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4370,6 +5585,38 @@ diagnostics_run_all() {
     pause
 }
 
+
+diagnostics_desktop_browser() {
+    header "Tool_Box - Diagnostics - Desktop / Browser"
+    echo "Current user    : $(id -un 2>/dev/null || echo unknown)"
+    echo "EUID            : $EUID"
+    echo "DISPLAY         : ${DISPLAY:-not set}"
+    echo "WAYLAND_DISPLAY : ${WAYLAND_DISPLAY:-not set}"
+    echo "XDG_RUNTIME_DIR : ${XDG_RUNTIME_DIR:-not set}"
+    echo "DBUS session    : ${DBUS_SESSION_BUS_ADDRESS:-not set}"
+    echo ""
+    if find_default_browser_command >/dev/null 2>&1; then echo "xdg-open        : Available"; else echo "xdg-open        : Missing"; fi
+    if find_firefox_command >/dev/null 2>&1; then echo "Firefox         : $(find_firefox_command)"; else echo "Firefox         : Missing"; fi
+    if find_chrome_command >/dev/null 2>&1; then echo "Chrome/Chromium : $(find_chrome_command)"; else echo "Chrome/Chromium : Missing"; fi
+    echo ""
+    if command -v wl-copy >/dev/null 2>&1; then
+        echo "Clipboard       : wl-copy"
+    elif command -v xclip >/dev/null 2>&1; then
+        echo "Clipboard       : xclip"
+    elif command -v xsel >/dev/null 2>&1; then
+        echo "Clipboard       : xsel"
+    else
+        echo "Clipboard       : No helper detected"
+    fi
+    if (( EUID == 0 )); then
+        echo ""
+        msg_warn "GUI applications launched directly as root may not have access to the desktop session."
+        echo "Use Useful Links -> Open Firefox as User when needed."
+    fi
+    echo ""
+    pause
+}
+
 diagnostics_menu() {
     local choice
     while true; do
@@ -4383,6 +5630,7 @@ diagnostics_menu() {
         echo " 7) Privilege / Package Manager Info"
         echo " 8) Bash Syntax Check"
         echo " 9) APT / Repository Troubleshooter"
+        echo "10) Desktop / Browser / Clipboard Check"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4396,6 +5644,7 @@ diagnostics_menu() {
             7) diagnostics_environment ;;
             8) diagnostics_script_syntax ;;
             9) repository_manager_menu ;;
+            10) diagnostics_desktop_browser ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4455,25 +5704,32 @@ exploit_menu() {
 # Useful Links
 # -------------------------
 find_firefox_command() {
-    if command -v firefox >/dev/null 2>&1; then
-        printf '%s' "firefox"
-        return 0
-    fi
-    if command -v firefox-esr >/dev/null 2>&1; then
-        printf '%s' "firefox-esr"
-        return 0
-    fi
+    local candidate
+    for candidate in firefox firefox-esr; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            command -v "$candidate"
+            return 0
+        fi
+    done
     return 1
 }
 
 find_chrome_command() {
     local candidate
-    for candidate in google-chrome google-chrome-stable chrome; do
+    for candidate in google-chrome google-chrome-stable chrome chromium chromium-browser; do
         if command -v "$candidate" >/dev/null 2>&1; then
-            printf '%s' "$candidate"
+            command -v "$candidate"
             return 0
         fi
     done
+    return 1
+}
+
+find_default_browser_command() {
+    if command -v xdg-open >/dev/null 2>&1; then
+        command -v xdg-open
+        return 0
+    fi
     return 1
 }
 
@@ -4481,6 +5737,13 @@ browser_status_text() {
     local browser="$1"
 
     case "$browser" in
+        default)
+            if find_default_browser_command >/dev/null; then
+                status_text "Available"
+            else
+                status_text "Missing"
+            fi
+            ;;
         firefox)
             if find_firefox_command >/dev/null; then
                 status_text "Installed"
@@ -4499,25 +5762,369 @@ browser_status_text() {
     esac
 }
 
+# Read a GUI environment variable from any process belonging to a user. This is
+# a fallback for root shells, which usually do not inherit the desktop user's
+# DISPLAY/WAYLAND/D-Bus environment.
+find_user_process_env() {
+    local run_uid="$1"
+    local wanted="$2"
+    local proc proc_uid value
+
+    for proc in /proc/[0-9]*; do
+        [[ -r "$proc/environ" ]] || continue
+        proc_uid="$(stat -c '%u' "$proc" 2>/dev/null || true)"
+        [[ "$proc_uid" == "$run_uid" ]] || continue
+
+        value="$(tr '\0' '\n' < "$proc/environ" 2>/dev/null | sed -n "s/^${wanted}=//p" | head -n 1)"
+        if [[ -n "$value" ]]; then
+            printf '%s' "$value"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Resolve the selected user's actual desktop-session environment. On modern
+# Ubuntu this is commonly a Wayland GNOME session, so simply forcing DISPLAY=:0
+# is not reliable. We first ask the user's systemd session, then inspect their
+# running processes, and finally use safe filesystem fallbacks.
+resolve_user_gui_environment() {
+    local run_user="$1"
+    local run_uid="$2"
+    local run_home="$3"
+    local systemd_env=""
+    local key value candidate
+
+    USER_GUI_RUNTIME="/run/user/$run_uid"
+    USER_GUI_DBUS=""
+    USER_GUI_DISPLAY=""
+    USER_GUI_WAYLAND=""
+    USER_GUI_XAUTHORITY=""
+
+    if [[ -S "$USER_GUI_RUNTIME/bus" ]]; then
+        USER_GUI_DBUS="unix:path=$USER_GUI_RUNTIME/bus"
+    fi
+
+    # systemctl --user often contains the exact variables imported by GNOME.
+    if command -v systemctl >/dev/null 2>&1 && [[ -n "$USER_GUI_DBUS" ]]; then
+        if command -v runuser >/dev/null 2>&1; then
+            systemd_env="$(runuser -u "$run_user" -- env \
+                XDG_RUNTIME_DIR="$USER_GUI_RUNTIME" \
+                DBUS_SESSION_BUS_ADDRESS="$USER_GUI_DBUS" \
+                systemctl --user show-environment 2>/dev/null || true)"
+        elif command -v sudo >/dev/null 2>&1; then
+            systemd_env="$(sudo -u "$run_user" -H env \
+                XDG_RUNTIME_DIR="$USER_GUI_RUNTIME" \
+                DBUS_SESSION_BUS_ADDRESS="$USER_GUI_DBUS" \
+                systemctl --user show-environment 2>/dev/null || true)"
+        fi
+
+        while IFS='=' read -r key value; do
+            case "$key" in
+                DISPLAY) USER_GUI_DISPLAY="$value" ;;
+                WAYLAND_DISPLAY) USER_GUI_WAYLAND="$value" ;;
+                XAUTHORITY) USER_GUI_XAUTHORITY="$value" ;;
+                DBUS_SESSION_BUS_ADDRESS) [[ -n "$value" ]] && USER_GUI_DBUS="$value" ;;
+                XDG_RUNTIME_DIR) [[ -n "$value" ]] && USER_GUI_RUNTIME="$value" ;;
+            esac
+        done <<< "$systemd_env"
+    fi
+
+    # If systemd did not know a value, copy it from an existing process in the
+    # selected user's graphical login session.
+    [[ -n "$USER_GUI_DISPLAY" ]] || USER_GUI_DISPLAY="$(find_user_process_env "$run_uid" DISPLAY 2>/dev/null || true)"
+    [[ -n "$USER_GUI_WAYLAND" ]] || USER_GUI_WAYLAND="$(find_user_process_env "$run_uid" WAYLAND_DISPLAY 2>/dev/null || true)"
+    [[ -n "$USER_GUI_XAUTHORITY" ]] || USER_GUI_XAUTHORITY="$(find_user_process_env "$run_uid" XAUTHORITY 2>/dev/null || true)"
+    [[ -n "$USER_GUI_DBUS" ]] || USER_GUI_DBUS="$(find_user_process_env "$run_uid" DBUS_SESSION_BUS_ADDRESS 2>/dev/null || true)"
+
+    # GNOME/Wayland fallbacks.
+    if [[ -z "$USER_GUI_WAYLAND" && -d "$USER_GUI_RUNTIME" ]]; then
+        for candidate in "$USER_GUI_RUNTIME"/wayland-*; do
+            [[ -S "$candidate" ]] || continue
+            USER_GUI_WAYLAND="${candidate##*/}"
+            break
+        done
+    fi
+
+    if [[ -z "$USER_GUI_XAUTHORITY" && -d "$USER_GUI_RUNTIME" ]]; then
+        for candidate in "$USER_GUI_RUNTIME"/.mutter-Xwaylandauth.*; do
+            [[ -f "$candidate" ]] || continue
+            USER_GUI_XAUTHORITY="$candidate"
+            break
+        done
+    fi
+
+    if [[ -z "$USER_GUI_XAUTHORITY" && -f "$run_home/.Xauthority" ]]; then
+        USER_GUI_XAUTHORITY="$run_home/.Xauthority"
+    fi
+
+    # X11 sessions still commonly use :0. Only use this fallback when no
+    # Wayland socket was discovered.
+    if [[ -z "$USER_GUI_DISPLAY" && -z "$USER_GUI_WAYLAND" ]]; then
+        USER_GUI_DISPLAY=":0"
+    fi
+}
+
+# Launch a browser in the current user's GUI session. If Tool_Box was started
+# with sudo, automatically drop back to SUDO_USER when possible.
+launch_browser_command() {
+    local browser_command="$1"
+    local url="$2"
+    local browser_log="/tmp/tool_box_browser_${$}.log"
+    local gui_user="${SUDO_USER:-}"
+    local gui_uid=""
+    local gui_home=""
+    local pid rc
+    local -a gui_env
+
+    : > "$browser_log" 2>/dev/null || true
+
+    if (( EUID == 0 )) && [[ -n "$gui_user" && "$gui_user" != "root" ]]; then
+        gui_uid="$(id -u "$gui_user" 2>/dev/null || true)"
+        gui_home="$(getent passwd "$gui_user" 2>/dev/null | cut -d: -f6)"
+        [[ -n "$gui_home" ]] || gui_home="/home/$gui_user"
+
+        resolve_user_gui_environment "$gui_user" "$gui_uid" "$gui_home"
+
+        gui_env=(
+            "HOME=$gui_home"
+            "USER=$gui_user"
+            "LOGNAME=$gui_user"
+            "XDG_RUNTIME_DIR=$USER_GUI_RUNTIME"
+        )
+        [[ -n "$USER_GUI_DBUS" ]] && gui_env+=("DBUS_SESSION_BUS_ADDRESS=$USER_GUI_DBUS")
+        [[ -n "$USER_GUI_DISPLAY" ]] && gui_env+=("DISPLAY=$USER_GUI_DISPLAY")
+        [[ -n "$USER_GUI_WAYLAND" ]] && gui_env+=("WAYLAND_DISPLAY=$USER_GUI_WAYLAND" "MOZ_ENABLE_WAYLAND=1")
+        [[ -n "$USER_GUI_XAUTHORITY" ]] && gui_env+=("XAUTHORITY=$USER_GUI_XAUTHORITY")
+
+        if command -v runuser >/dev/null 2>&1; then
+            runuser -u "$gui_user" -- env "${gui_env[@]}" \
+                "$browser_command" "$url" >"$browser_log" 2>&1 &
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo -u "$gui_user" -H env "${gui_env[@]}" \
+                "$browser_command" "$url" >"$browser_log" 2>&1 &
+        else
+            msg_error "Neither runuser nor sudo is available to launch the desktop browser as '$gui_user'."
+            pause
+            return 1
+        fi
+        pid=$!
+    else
+        "$browser_command" "$url" >"$browser_log" 2>&1 &
+        pid=$!
+    fi
+
+    sleep 2
+    if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid" 2>/dev/null
+        rc=$?
+        if (( rc != 0 )); then
+            msg_error "Browser launch failed (exit code $rc)."
+            if [[ -s "$browser_log" ]]; then
+                echo ""
+                echo "Browser error:"
+                tail -n 12 "$browser_log"
+            fi
+            echo ""
+            echo "URL: $url"
+            pause
+            rm -f "$browser_log" 2>/dev/null || true
+            return "$rc"
+        fi
+    fi
+
+    rm -f "$browser_log" 2>/dev/null || true
+    return 0
+}
+
+# Explicit root-only launcher. It prompts for the desktop username, discovers
+# that user's live GUI session, and then executes Firefox with that account's
+# HOME, runtime directory, D-Bus socket, Wayland/X11 display, and Xauthority.
+launch_browser_as_user() {
+    local browser_command="$1"
+    local url="$2"
+    local run_user=""
+    local run_uid=""
+    local run_home=""
+    local browser_log="/tmp/tool_box_browser_${$}.log"
+    local pid rc
+    local -a gui_env
+
+    if (( EUID != 0 )); then
+        msg_warn "This option is intended for Tool_Box sessions running as root."
+        pause
+        return 1
+    fi
+
+    echo ""
+    read -r -p "Username to run Firefox as: " run_user
+    run_user="${run_user//[[:space:]]/}"
+
+    if [[ -z "$run_user" ]]; then
+        msg_error "No username entered."
+        pause
+        return 1
+    fi
+
+    if ! id "$run_user" >/dev/null 2>&1; then
+        msg_error "User '$run_user' does not exist."
+        pause
+        return 1
+    fi
+
+    if [[ "$run_user" == "root" ]]; then
+        msg_error "Choose the non-root user who owns the graphical desktop session."
+        pause
+        return 1
+    fi
+
+    run_uid="$(id -u "$run_user")"
+    run_home="$(getent passwd "$run_user" 2>/dev/null | cut -d: -f6)"
+    [[ -n "$run_home" ]] || run_home="/home/$run_user"
+
+    resolve_user_gui_environment "$run_user" "$run_uid" "$run_home"
+
+    echo ""
+    echo "Desktop session detected for: $run_user"
+    echo " XDG_RUNTIME_DIR : ${USER_GUI_RUNTIME:-Not detected}"
+    echo " WAYLAND_DISPLAY : ${USER_GUI_WAYLAND:-Not detected}"
+    echo " DISPLAY         : ${USER_GUI_DISPLAY:-Not detected}"
+    echo " XAUTHORITY      : ${USER_GUI_XAUTHORITY:-Not detected}"
+    echo " D-Bus           : ${USER_GUI_DBUS:-Not detected}"
+    echo ""
+
+    if [[ ! -d "$USER_GUI_RUNTIME" ]]; then
+        msg_error "No active runtime directory exists for '$run_user'."
+        echo "That usually means the user is not currently logged into the graphical desktop."
+        pause
+        return 1
+    fi
+
+    if [[ -z "$USER_GUI_WAYLAND" && -z "$USER_GUI_DISPLAY" ]]; then
+        msg_error "No graphical display could be detected for '$run_user'."
+        echo "Log into the desktop as that user first, then try again."
+        pause
+        return 1
+    fi
+
+    gui_env=(
+        "HOME=$run_home"
+        "USER=$run_user"
+        "LOGNAME=$run_user"
+        "XDG_RUNTIME_DIR=$USER_GUI_RUNTIME"
+    )
+    [[ -n "$USER_GUI_DBUS" ]] && gui_env+=("DBUS_SESSION_BUS_ADDRESS=$USER_GUI_DBUS")
+    [[ -n "$USER_GUI_DISPLAY" ]] && gui_env+=("DISPLAY=$USER_GUI_DISPLAY")
+    [[ -n "$USER_GUI_WAYLAND" ]] && gui_env+=("WAYLAND_DISPLAY=$USER_GUI_WAYLAND" "MOZ_ENABLE_WAYLAND=1")
+    [[ -n "$USER_GUI_XAUTHORITY" ]] && gui_env+=("XAUTHORITY=$USER_GUI_XAUTHORITY")
+
+    : > "$browser_log" 2>/dev/null || true
+
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "$run_user" -- env "${gui_env[@]}" \
+            "$browser_command" --new-tab "$url" >"$browser_log" 2>&1 &
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo -u "$run_user" -H env "${gui_env[@]}" \
+            "$browser_command" --new-tab "$url" >"$browser_log" 2>&1 &
+    else
+        msg_error "Neither runuser nor sudo is available."
+        pause
+        return 1
+    fi
+    pid=$!
+
+    # Snap Firefox can take a little longer to report startup errors, so keep
+    # the log around for several seconds instead of deleting it immediately.
+    sleep 4
+    if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid" 2>/dev/null
+        rc=$?
+        if (( rc != 0 )); then
+            msg_error "Firefox launch as '$run_user' failed (exit code $rc)."
+            if [[ -s "$browser_log" ]]; then
+                echo ""
+                echo "Firefox error:"
+                tail -n 20 "$browser_log"
+            fi
+            echo ""
+            echo "URL: $url"
+            pause
+            rm -f "$browser_log" 2>/dev/null || true
+            return "$rc"
+        fi
+    fi
+
+    # If the launcher exited successfully, it may simply have handed the URL to
+    # an already-running Firefox process. Either case is considered success.
+    if [[ -s "$browser_log" ]]; then
+        # Keep non-empty output visible only when it looks like an error/warning.
+        if grep -Eqi 'error|failed|cannot|denied|refused|not found|no display' "$browser_log"; then
+            msg_warn "Firefox returned diagnostic output:"
+            tail -n 20 "$browser_log"
+            echo ""
+            echo "URL: $url"
+            pause
+            rm -f "$browser_log" 2>/dev/null || true
+            return 1
+        fi
+    fi
+
+    rm -f "$browser_log" 2>/dev/null || true
+    msg_success "Sent link to Firefox as desktop user '$run_user'."
+    sleep 1
+    return 0
+}
+
+open_useful_link_as_user() {
+    local url="$1"
+    local browser_command=""
+
+    browser_command=$(find_firefox_command) || {
+        msg_error "Firefox is not installed or is not in PATH."
+        pause
+        return 1
+    }
+
+    if [[ "$dry_run_mode" == true ]]; then
+        msg_warn "DRY-RUN: Would prompt for a user and open $url with $browser_command."
+        pause
+        return 0
+    fi
+
+    launch_browser_as_user "$browser_command" "$url"
+}
+
 open_useful_link() {
     local browser="$1"
     local url="$2"
     local browser_command=""
+    local browser_label=""
 
     case "$browser" in
+        default)
+            browser_command=$(find_default_browser_command) || {
+                msg_error "xdg-open is not installed. Install xdg-utils or choose Firefox directly."
+                pause
+                return 1
+            }
+            browser_label="default browser"
+            ;;
         firefox)
             browser_command=$(find_firefox_command) || {
                 msg_error "Firefox is not installed or is not in PATH."
                 pause
                 return 1
             }
+            browser_label="$browser_command"
             ;;
         chrome)
             browser_command=$(find_chrome_command) || {
-                msg_error "Google Chrome is not installed or is not in PATH."
+                msg_error "Chrome/Chromium is not installed or is not in PATH."
                 pause
                 return 1
             }
+            browser_label="$browser_command"
             ;;
         *)
             msg_error "Unknown browser: $browser"
@@ -4527,14 +6134,15 @@ open_useful_link() {
     esac
 
     if [[ "$dry_run_mode" == true ]]; then
-        msg_warn "DRY-RUN: Would open $url with $browser_command"
+        msg_warn "DRY-RUN: Would open $url with $browser_label"
         pause
         return 0
     fi
 
-    "$browser_command" "$url" >/dev/null 2>&1 &
-    msg_success "Opened link in $browser_command."
-    sleep 1
+    if launch_browser_command "$browser_command" "$url"; then
+        msg_success "Sent link to $browser_label."
+        sleep 1
+    fi
 }
 
 useful_link_page() {
@@ -4551,74 +6159,288 @@ useful_link_page() {
         printf '%b\n' "${C_BOLD}Link:${C_RESET}"
         printf ' %b%s%b\n' "$C_BLUE" "$url" "$C_RESET"
         echo ""
-        printf ' Firefox : %b\n' "$(browser_status_text firefox)"
-        printf ' Chrome  : %b\n' "$(browser_status_text chrome)"
+        printf ' Default opener : %b\n' "$(browser_status_text default)"
+        printf ' Firefox        : %b\n' "$(browser_status_text firefox)"
+        printf ' Chrome/Chromium: %b\n' "$(browser_status_text chrome)"
         echo ""
-        echo " 1) Open in Firefox"
-        echo " 2) Open in Chrome"
+        echo " 1) Open in Default Browser"
+        echo " 2) Open in Firefox"
+        if (( EUID == 0 )); then
+            echo " 3) Open Firefox as User (prompt for username)"
+            echo " 4) Copy URL"
+            echo " 5) Open in Chrome / Chromium"
+        else
+            echo " 3) Copy URL"
+            echo " 4) Open in Chrome / Chromium"
+        fi
         echo " 0) Back"
         echo ""
         menu_prompt choice
 
+        if (( EUID == 0 )); then
+            case "$choice" in
+                1) open_useful_link default "$url" ;;
+                2) open_useful_link firefox "$url" ;;
+                3) open_useful_link_as_user "$url" ;;
+                4)
+                    if copy_to_clipboard "$url"; then msg_success "URL copied to clipboard."; else msg_warn "Clipboard helper unavailable; URL remains visible above."; fi
+                    pause
+                    ;;
+                5) open_useful_link chrome "$url" ;;
+                0) return ;;
+                *) echo "Invalid option."; pause ;;
+            esac
+        else
+            case "$choice" in
+                1) open_useful_link default "$url" ;;
+                2) open_useful_link firefox "$url" ;;
+                3)
+                    if copy_to_clipboard "$url"; then msg_success "URL copied to clipboard."; else msg_warn "Clipboard helper unavailable; URL remains visible above."; fi
+                    pause
+                    ;;
+                4) open_useful_link chrome "$url" ;;
+                0) return ;;
+                *) echo "Invalid option."; pause ;;
+            esac
+        fi
+    done
+}
+
+useful_links_shell_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links - Shell / Session Tools"
+        echo " 1) Penelope"
+        echo " 2) Reverse Shell Generator"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
         case "$choice" in
-            1) open_useful_link firefox "$url" ;;
-            2) open_useful_link chrome "$url" ;;
+            1) useful_link_page "Penelope" "https://github.com/brightio/penelope" "Shell handler and session-management project useful in authorized lab environments." ;;
+            2) useful_link_page "Reverse Shell Generator" "https://www.revshells.com/" "Reference and generator for shell command formats used in authorized labs." ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) msg_error "Invalid option."; pause ;;
         esac
     done
 }
 
-penelope_link_page() {
-    useful_link_page \
-        "Penelope" \
-        "https://github.com/brightio/penelope" \
-        "Penelope is a shell handler for authorized penetration-testing and lab work. Its project page documents interactive shell handling and related session-management features."
-}
-
-revshells_link_page() {
-    useful_link_page \
-        "Reverse Shell Generator" \
-        "https://www.revshells.com/" \
-        "A browser-based reference and generator for reverse-shell command formats across many common shells and platforms. Useful as a lab reference when working with systems you are authorized to test."
-}
-
-gtfobins_less_link_page() {
-    useful_link_page \
-        "GTFOBins - less" \
-        "https://gtfobins.org/gtfobins/less/" \
-        "The GTFOBins reference page for the Unix 'less' utility. It documents security-relevant behaviors of less that may matter when reviewing sudo rules, restricted shells, or other Linux privilege configurations."
-}
-
-cyberchef_link_page() {
-    useful_link_page \
-        "CyberChef" \
-        "https://gchq.github.io/CyberChef/" \
-        "GCHQ's browser-based data transformation and analysis toolkit. It is useful for encoding and decoding, hashes, text and byte manipulation, format conversion, and many other data-processing tasks."
-}
-
-useful_links_menu() {
+useful_links_data_menu() {
     local choice
+    while true; do
+        header "Tool_Box - Useful Links - Data / Encoding / Analysis"
+        echo " 1) CyberChef"
+        echo " 2) VirusTotal"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "CyberChef" "https://gchq.github.io/CyberChef/" "Browser-based data transformation toolkit for encoding, decoding, hashing, byte manipulation, and format conversion." ;;
+            2) useful_link_page "VirusTotal" "https://www.virustotal.com/" "File, URL, domain, and IP reputation and analysis service. Do not upload sensitive or private files." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+useful_links_privilege_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links - Privilege References"
+        echo " 1) GTFOBins"
+        echo " 2) LOLBAS"
+        echo " 3) HackTricks"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "GTFOBins" "https://gtfobins.github.io/" "Reference for Unix binaries and security-relevant behaviors, useful when reviewing sudo rules and restricted environments." ;;
+            2) useful_link_page "LOLBAS" "https://lolbas-project.github.io/" "Living Off The Land Binaries, Scripts and Libraries reference for Windows." ;;
+            3) useful_link_page "HackTricks" "https://book.hacktricks.wiki/" "Large security reference covering enumeration, common services, web technologies, and lab methodology." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+useful_links_web_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links - Web Security"
+        echo " 1) PortSwigger Web Security Academy"
+        echo " 2) OWASP Cheat Sheet Series"
+        echo " 3) OWASP Web Security Testing Guide"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "PortSwigger Web Security Academy" "https://portswigger.net/web-security" "Hands-on web security learning material and labs." ;;
+            2) useful_link_page "OWASP Cheat Sheet Series" "https://cheatsheetseries.owasp.org/" "Practical application-security guidance and defensive reference material." ;;
+            3) useful_link_page "OWASP Web Security Testing Guide" "https://owasp.org/www-project-web-security-testing-guide/" "Structured web application security testing methodology." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+useful_links_recon_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links - Recon / Vulnerabilities"
+        echo " 1) crt.sh - Certificate Transparency"
+        echo " 2) Nmap Reference Guide"
+        echo " 3) Nmap NSE Documentation"
+        echo " 4) Exploit Database"
+        echo " 5) MITRE ATT&CK"
+        echo " 6) CVE.org"
+        echo " 7) NIST NVD"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "crt.sh" "https://crt.sh/" "Certificate Transparency search interface that can help with authorized domain and subdomain research." ;;
+            2) useful_link_page "Nmap Reference Guide" "https://nmap.org/book/man.html" "Official Nmap command-line reference." ;;
+            3) useful_link_page "Nmap NSE Documentation" "https://nmap.org/nsedoc/" "Official Nmap Scripting Engine script documentation." ;;
+            4) useful_link_page "Exploit Database" "https://www.exploit-db.com/" "Public vulnerability and exploit-reference database for research and authorized testing." ;;
+            5) useful_link_page "MITRE ATT&CK" "https://attack.mitre.org/" "Knowledge base of adversary tactics and techniques used for threat modeling and defensive analysis." ;;
+            6) useful_link_page "CVE.org" "https://www.cve.org/" "Official CVE program site and vulnerability identifier reference." ;;
+            7) useful_link_page "NIST NVD" "https://nvd.nist.gov/" "NIST vulnerability database with CVE enrichment and scoring information." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+useful_links_payloads_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links - Payloads / Wordlists / Cheatsheets"
+        echo " 1) PayloadsAllTheThings"
+        echo " 2) SecLists"
+        echo " 3) PacketLife Cheat Sheets"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "PayloadsAllTheThings" "https://swisskyrepo.github.io/PayloadsAllTheThings/" "Security testing reference with payload examples and technique notes for authorized labs." ;;
+            2) useful_link_page "SecLists" "https://github.com/danielmiessler/SecLists" "Collection of wordlists used for security assessments, discovery, usernames, passwords, and fuzzing." ;;
+            3) useful_link_page "PacketLife Cheat Sheets" "https://packetlife.net/library/cheat-sheets/" "Networking protocol and command cheat sheets." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+useful_links_training_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links - Training"
+        echo " 1) TryHackMe"
+        echo " 2) PortSwigger Web Security Academy"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "TryHackMe" "https://tryhackme.com/" "Hands-on cybersecurity training platform and lab environment." ;;
+            2) useful_link_page "PortSwigger Web Security Academy" "https://portswigger.net/web-security" "Free web security learning material and interactive labs." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+
+custom_bookmarks_menu() {
+    local bookmark_file="$HOME/.tool_box_links.tsv" choice title url description remove_num i
+    local -a lines=()
+    touch "$bookmark_file" 2>/dev/null || true
+    chmod 600 "$bookmark_file" 2>/dev/null || true
 
     while true; do
-        header "Tool_Box - Useful Links"
-        echo "Useful Links:"
+        header "Tool_Box - Useful Links - Custom Bookmarks"
+        mapfile -t lines < "$bookmark_file" 2>/dev/null || lines=()
+        if ((${#lines[@]} > 0)); then
+            echo "Saved bookmarks:"
+            for ((i=0;i<${#lines[@]};i++)); do
+                IFS=$'\t' read -r title url description <<< "${lines[$i]}"
+                printf ' %2d) %s\n' "$((i+1))" "$title"
+            done
+        else
+            echo "No custom bookmarks saved."
+        fi
         echo ""
-        echo " 1) Penelope"
-        echo " 2) Reverse Shell Generator"
-        echo " 3) GTFOBins - less"
-        echo " 4) CyberChef"
+        echo " a) Add Bookmark"
+        echo " r) Remove Bookmark"
         echo " 0) Back"
         echo ""
         menu_prompt choice
 
         case "$choice" in
-            1) penelope_link_page ;;
-            2) revshells_link_page ;;
-            3) gtfobins_less_link_page ;;
-            4) cyberchef_link_page ;;
+            a|A)
+                read -r -p "Title: " title
+                read -r -p "URL: " url
+                read -r -p "Description: " description
+                [[ -n "$title" && "$url" =~ ^https?:// ]] || { msg_error "A title and http/https URL are required."; pause; continue; }
+                title="${title//$'\t'/ }"; description="${description//$'\t'/ }"
+                printf '%s\t%s\t%s\n' "$title" "$url" "$description" >> "$bookmark_file"
+                msg_success "Bookmark saved."
+                pause
+                ;;
+            r|R)
+                read -r -p "Bookmark number to remove: " remove_num
+                if [[ "$remove_num" =~ ^[0-9]+$ ]] && (( remove_num >= 1 && remove_num <= ${#lines[@]} )); then
+                    : > "${bookmark_file}.tmp"
+                    for ((i=0;i<${#lines[@]};i++)); do
+                        (( i == remove_num-1 )) || printf '%s\n' "${lines[$i]}" >> "${bookmark_file}.tmp"
+                    done
+                    mv -- "${bookmark_file}.tmp" "$bookmark_file"
+                    msg_success "Bookmark removed."
+                else
+                    msg_error "Invalid bookmark number."
+                fi
+                pause
+                ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#lines[@]} )); then
+                    IFS=$'\t' read -r title url description <<< "${lines[$((choice-1))]}"
+                    useful_link_page "$title" "$url" "${description:-Custom bookmark.}"
+                else
+                    msg_error "Invalid option."
+                    pause
+                fi
+                ;;
+        esac
+    done
+}
+
+useful_links_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Useful Links"
+        echo "Useful Links by Category:"
+        echo ""
+        echo " 1) Shell / Session Tools"
+        echo " 2) Linux / Windows Privilege References"
+        echo " 3) Data / Encoding / Analysis"
+        echo " 4) Web Security"
+        echo " 5) Recon / Vulnerability References"
+        echo " 6) Payloads / Wordlists / Cheat Sheets"
+        echo " 7) Training"
+        echo " 8) Custom Bookmarks"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_links_shell_menu ;;
+            2) useful_links_privilege_menu ;;
+            3) useful_links_data_menu ;;
+            4) useful_links_web_menu ;;
+            5) useful_links_recon_menu ;;
+            6) useful_links_payloads_menu ;;
+            7) useful_links_training_menu ;;
+            8) custom_bookmarks_menu ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
         esac
     done
 }
@@ -4629,18 +6451,438 @@ useful_links_menu() {
 # -------------------------
 pass_hash_cracking_menu() {
     local choice
-
     while true; do
         header "Tool_Box - Pass/Hash Cracking"
-        echo "Pass/Hash Cracking:"
+        echo "Pass / Hash Utilities:"
         echo ""
-        echo " No tools have been added yet."
+        echo " 1) Hash Identification Helper"
+        echo " 2) Text / Encoding Tools"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) hash_identifier_menu ;;
+            2) text_encoding_menu ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+
+# -------------------------
+# Main Menu Groups
+# -------------------------
+target_scanning_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Target & Scanning"
+        echo "Target & Scanning:"
+        echo ""
+        echo " 1) Workspace / Project"
+        echo " 2) Set Target / Data"
+        echo " 3) Scan Profiles"
+        echo " 4) Import Nmap Results"
+        echo " 5) Service-Aware Recommendations"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) workspace_menu ;;
+            2) set_data_menu ;;
+            3) scan_profiles_menu ;;
+            4) import_nmap_results ;;
+            5) service_recommendations_page ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+recon_enumeration_hub_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Recon & Enumeration"
+        echo "Reconnaissance & Enumeration:"
+        echo ""
+        echo " 1) Reconnaissance"
+        echo " 2) Web Enumeration"
+        echo " 3) Network / DNS"
+        echo " 4) SMB / Windows"
+        echo " 5) Service Enumeration"
+        echo " 6) Vulnerability Assessment"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) reconnaissance_menu ;;
+            2) web_enumeration_menu ;;
+            3) network_dns_menu ;;
+            4) smb_windows_menu ;;
+            5) service_enumeration_menu ;;
+            6) vulnerability_assessment_menu ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+access_exploitation_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Access & Exploitation"
+        echo "Credential Access & Exploitation:"
+        echo ""
+        echo " 1) Pass / Hash Cracking"
+        echo " 2) Exploit"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) pass_hash_cracking_menu ;;
+            2) exploit_menu ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+analysis_reporting_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Analysis & Reporting"
+        echo "Analysis & Reporting:"
+        echo ""
+        echo " 1) Traffic Analysis"
+        echo " 2) Results / Reporting"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) traffic_analysis_menu ;;
+            2) results_menu ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+utilities_resources_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Utilities & Resources"
+        echo "Utilities & Resources:"
+        echo ""
+        echo " 1) Command-Line Utilities"
+        echo " 2) Network Information / VPN Status"
+        echo " 3) Text / Encoding Tools"
+        echo " 4) Port Reference"
+        echo " 5) Useful Links"
+        echo " 6) Quick Help / Workflow Guide"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) utilities_menu ;;
+            2) network_info_menu ;;
+            3) text_encoding_menu ;;
+            4) port_reference_menu ;;
+            5) useful_links_menu ;;
+            6) toolbox_quick_help ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+# -------------------------
+# Global navigation helpers
+# -------------------------
+restart_main_menu() {
+    # Replace the current process rather than recursively calling main_menu().
+    # Session variables are passed through the environment so the active target,
+    # settings, and workspace survive a global Main Menu shortcut.
+    local script_path
+    script_path="$(readlink -f -- "$0" 2>/dev/null)"
+    [[ -n "$script_path" && -f "$script_path" ]] || script_path="$0"
+
+    exec env \
+        TOOLBOX_NAV_RESTART=true \
+        TOOLBOX_ELEVATED_SESSION="$toolbox_elevated_session" \
+        TOOLBOX_PARENT_USER="$toolbox_parent_user" \
+        TOOLBOX_SESSION_IP="$ip" \
+        TOOLBOX_SESSION_SUBNET="$subnet" \
+        TOOLBOX_SESSION_PORT="$port" \
+        TOOLBOX_SESSION_OUTPUT="$output_folder" \
+        TOOLBOX_SESSION_WORDLIST="$default_wordlist" \
+        TOOLBOX_SESSION_THREADS="$default_threads" \
+        TOOLBOX_SESSION_AUTOSAVE="$auto_save_output" \
+        TOOLBOX_SESSION_VERBOSE="$verbose_mode" \
+        TOOLBOX_SESSION_DRYRUN="$dry_run_mode" \
+        TOOLBOX_SESSION_COLOR="$color_enabled" \
+        TOOLBOX_SESSION_WORKSPACE_NAME="$workspace_name" \
+        TOOLBOX_SESSION_WORKSPACE_DIR="$workspace_dir" \
+        TOOLBOX_SESSION_WORKSPACE_LOADED="$workspace_loaded" \
+        bash "$script_path"
+}
+
+# -------------------------
+# Privilege / user session management
+# -------------------------
+apply_session_state() {
+    # Root-child sessions and global-navigation restarts receive the active
+    # target/settings through environment variables. Apply them after config
+    # loading so Tool_Box continues with the same working state.
+    [[ "${TOOLBOX_SESSION_IP+x}" == x ]] && ip="$TOOLBOX_SESSION_IP"
+    [[ "${TOOLBOX_SESSION_SUBNET+x}" == x ]] && subnet="$TOOLBOX_SESSION_SUBNET"
+    [[ "${TOOLBOX_SESSION_PORT+x}" == x ]] && port="$TOOLBOX_SESSION_PORT"
+    [[ "${TOOLBOX_SESSION_OUTPUT+x}" == x ]] && output_folder="$TOOLBOX_SESSION_OUTPUT"
+    [[ "${TOOLBOX_SESSION_WORDLIST+x}" == x ]] && default_wordlist="$TOOLBOX_SESSION_WORDLIST"
+    [[ "${TOOLBOX_SESSION_THREADS+x}" == x ]] && default_threads="$TOOLBOX_SESSION_THREADS"
+    [[ "${TOOLBOX_SESSION_AUTOSAVE+x}" == x ]] && auto_save_output="$TOOLBOX_SESSION_AUTOSAVE"
+    [[ "${TOOLBOX_SESSION_VERBOSE+x}" == x ]] && verbose_mode="$TOOLBOX_SESSION_VERBOSE"
+    [[ "${TOOLBOX_SESSION_DRYRUN+x}" == x ]] && dry_run_mode="$TOOLBOX_SESSION_DRYRUN"
+    [[ "${TOOLBOX_SESSION_COLOR+x}" == x ]] && color_enabled="$TOOLBOX_SESSION_COLOR"
+    [[ "${TOOLBOX_SESSION_WORKSPACE_NAME+x}" == x ]] && workspace_name="$TOOLBOX_SESSION_WORKSPACE_NAME"
+    [[ "${TOOLBOX_SESSION_WORKSPACE_DIR+x}" == x ]] && workspace_dir="$TOOLBOX_SESSION_WORKSPACE_DIR"
+    [[ "${TOOLBOX_SESSION_WORKSPACE_LOADED+x}" == x ]] && workspace_loaded="$TOOLBOX_SESSION_WORKSPACE_LOADED"
+
+    refresh_colors
+}
+
+start_root_toolbox_session() {
+    local script_path current_user status confirm
+
+    header "Tool_Box - Privilege Management"
+
+    if (( EUID == 0 )); then
+        msg_warn "Tool_Box is already running as root."
+        pause
+        return 0
+    fi
+
+    if ! command -v sudo >/dev/null 2>&1; then
+        msg_error "sudo is not installed or is not available in PATH."
+        pause
+        return 1
+    fi
+
+    current_user="$(id -un)"
+    script_path="$(readlink -f -- "$0" 2>/dev/null)"
+    if [[ -z "$script_path" || ! -f "$script_path" ]]; then
+        script_path="$0"
+    fi
+
+    echo "Current user : $current_user"
+    echo "New session  : root"
+    echo ""
+    echo "This starts a ROOT Tool_Box session inside the current terminal."
+    echo "Your current target, ports, output path, and active settings are carried over."
+    echo "When the root Tool_Box session exits, you return to this $current_user session."
+    echo ""
+    msg_warn "Commands run from the elevated session have full root privileges."
+    echo ""
+    read -r -p "Start Tool_Box as root? [y/N]: " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || {
+        msg_warn "Elevation cancelled."
+        pause
+        return 0
+    }
+
+    echo ""
+    msg_warn "sudo may prompt for the password for $current_user."
+
+    # Use a nested sudo process instead of exec. This is intentional: after the
+    # root child exits, the original standard-user Tool_Box continues with its
+    # in-memory session state intact.
+    sudo env \
+        TOOLBOX_ELEVATED_SESSION=true \
+        TOOLBOX_PARENT_USER="$current_user" \
+        TOOLBOX_SESSION_IP="$ip" \
+        TOOLBOX_SESSION_SUBNET="$subnet" \
+        TOOLBOX_SESSION_PORT="$port" \
+        TOOLBOX_SESSION_OUTPUT="$output_folder" \
+        TOOLBOX_SESSION_WORDLIST="$default_wordlist" \
+        TOOLBOX_SESSION_THREADS="$default_threads" \
+        TOOLBOX_SESSION_AUTOSAVE="$auto_save_output" \
+        TOOLBOX_SESSION_VERBOSE="$verbose_mode" \
+        TOOLBOX_SESSION_DRYRUN="$dry_run_mode" \
+        TOOLBOX_SESSION_COLOR="$color_enabled" \
+        TOOLBOX_SESSION_WORKSPACE_NAME="$workspace_name" \
+        TOOLBOX_SESSION_WORKSPACE_DIR="$workspace_dir" \
+        TOOLBOX_SESSION_WORKSPACE_LOADED="$workspace_loaded" \
+        bash "$script_path"
+    status=$?
+
+    echo ""
+    if (( status == 0 )); then
+        msg_success "Returned to Tool_Box as $current_user."
+    else
+        msg_error "The root Tool_Box session exited with status $status."
+    fi
+    pause
+    return "$status"
+}
+
+privilege_management_menu() {
+    local choice current_user
+
+    while true; do
+        current_user="$(id -un)"
+        header "Tool_Box - Privilege Management"
+        echo "Privilege / User Session:"
+        echo ""
+        echo " Current User : $current_user"
+        if (( EUID == 0 )); then
+            printf ' Privileges   : %bROOT%b\n' "$C_RED$C_BOLD" "$C_RESET"
+            if [[ "$toolbox_elevated_session" == true && -n "$toolbox_parent_user" ]]; then
+                echo " Parent User  : $toolbox_parent_user"
+                echo ""
+                echo " 1) Return to $toolbox_parent_user Tool_Box"
+            else
+                echo ""
+                echo " Tool_Box was started directly as root."
+            fi
+        else
+            printf ' Privileges   : %bStandard user%b\n' "$C_GREEN" "$C_RESET"
+            if command -v sudo >/dev/null 2>&1; then
+                printf ' sudo         : %bAvailable%b\n' "$C_GREEN" "$C_RESET"
+            else
+                printf ' sudo         : %bUnavailable%b\n' "$C_RED" "$C_RESET"
+            fi
+            echo ""
+            echo " 1) Start Tool_Box as Root"
+        fi
         echo ""
         echo " 0) Back"
         echo ""
         menu_prompt choice
 
         case "$choice" in
+            1)
+                if (( EUID == 0 )); then
+                    if [[ "$toolbox_elevated_session" == true && -n "$toolbox_parent_user" ]]; then
+                        msg_success "Returning to $toolbox_parent_user..."
+                        sleep 1
+                        exit 0
+                    else
+                        msg_warn "There is no parent Tool_Box user session to return to."
+                        pause
+                    fi
+                else
+                    start_root_toolbox_session
+                fi
+                ;;
+            0) return ;;
+            *) echo "Invalid option."; pause ;;
+        esac
+    done
+}
+
+
+privilege_guide_page() {
+    header "Tool_Box - Privilege Guide"
+    cat <<'EOF'
+Privilege guidance
+------------------
+[USER] Most web, DNS, SMB client, service enumeration, text processing, and reporting actions.
+[ROOT OPTIONAL] Some Nmap options may work better with raw-socket privileges or capabilities.
+[ROOT REQUIRED] Packet capture, some ARP/network discovery actions, and operations that modify system packages/repositories.
+
+Tool_Box behavior
+-----------------
+- Elevated commands are marked before execution and require confirmation.
+- A normal session can start a nested root Tool_Box from Privilege / User Session.
+- When that root child exits, the original user session resumes.
+- Workspaces and active target/settings are carried into the nested root session.
+EOF
+    echo ""
+    pause
+}
+
+check_toolbox_update() {
+    local remote remote_ver
+    header "Tool_Box - Check for Update"
+    if ! command -v curl >/dev/null 2>&1; then
+        msg_error "curl is required to check GitHub."
+        pause
+        return 1
+    fi
+    echo "Checking: $toolbox_raw_url"
+    remote="$(curl -fsSL --max-time 10 "$toolbox_raw_url" 2>/dev/null)" || {
+        msg_error "Unable to retrieve the repository copy."
+        pause
+        return 1
+    }
+    remote_ver="$(printf '%s\n' "$remote" | sed -n 's/^ver="\([^"]*\)"/\1/p' | head -n1)"
+    if [[ -z "$remote_ver" ]]; then
+        msg_warn "Repository file was reachable, but its version could not be identified."
+    else
+        echo "Installed version : $ver"
+        echo "Repository version: $remote_ver"
+        if [[ "$remote_ver" == "$ver" ]]; then
+            msg_success "This copy matches the repository version."
+        else
+            msg_info "A different version is available in the repository."
+        fi
+    fi
+    echo ""
+    msg_info "Tool_Box does not overwrite itself automatically."
+    pause
+}
+
+about_toolbox_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - About"
+        echo "Version   : $ver"
+        echo "Script    : ${BASH_SOURCE[0]}"
+        echo "Repository: $toolbox_repo_url"
+        echo ""
+        echo "v0.29 navigation additions: global footer shortcuts, reorganized Useful Links,"
+        echo "and custom per-tool target/query overrides for common network utilities."
+        echo ""
+        echo " 1) Open Repository"
+        echo " 2) Copy Repository URL"
+        echo " 3) Check Repository Version"
+        echo " 4) Privilege Guide"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) useful_link_page "Tool_Box Repository" "$toolbox_repo_url" "Source repository for Tool_Box." ;;
+            2)
+                if copy_to_clipboard "$toolbox_repo_url"; then msg_success "Repository URL copied."; else msg_warn "Clipboard helper unavailable."; fi
+                pause
+                ;;
+            3) check_toolbox_update ;;
+            4) privilege_guide_page ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
+system_configuration_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - System & Configuration"
+        echo "System & Configuration:"
+        echo ""
+        echo " 1) Install / Manage Software"
+        echo " 2) Settings"
+        echo " 3) Tool_Box Diagnostics"
+        echo " 4) Privilege / User Session"
+        echo " 5) About / Version / Update Check"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) software_dependencies_menu ;;
+            2) settings_menu ;;
+            3) diagnostics_menu ;;
+            4) privilege_management_menu ;;
+            5) about_toolbox_menu ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4672,48 +6914,34 @@ main_menu() {
         done < "$config_file"
     fi
 
+    # A nested root session should inherit the active standard-user Tool_Box
+    # state instead of resetting the target/settings when sudo starts it.
+    if [[ "$toolbox_elevated_session" == true || "$toolbox_nav_restart" == true ]]; then
+        apply_session_state
+    fi
+
     while true; do
         header "Tool_Box"
-        echo "Menu:"
-        echo " 1) Set Target / Data"
-        echo " 2) Reconnaissance"
-        echo " 3) Web Enumeration"
-        echo " 4) Network / DNS"
-        echo " 5) SMB / Windows"
-        echo " 6) Service Enumeration"
-        echo " 7) Traffic Analysis"
-        echo " 8) Vulnerability Assessment"
-        echo " 9) Pass/Hash Cracking"
-        echo "10) Utilities"
-        echo "11) Scan Profiles"
-        echo "12) Results / Reporting"
-        echo "13) Install Software"
-        echo "14) Settings"
-        echo "15) Tool_Box Diagnostics"
-        echo "16) Exploit"
-        echo "17) Useful Links"
+        printf '%b\n' "${C_BOLD}Main Menu${C_RESET}"
+        echo ""
+        echo " 1) Target & Scanning"
+        echo " 2) Reconnaissance & Enumeration"
+        echo " 3) Access & Exploitation"
+        echo " 4) Analysis & Reporting"
+        echo " 5) Utilities & Resources"
+        echo " 6) System & Configuration"
+        echo ""
         echo " 0) Exit"
         echo ""
         menu_prompt menu1
 
         case "$menu1" in
-            1) set_data_menu ;;
-            2) reconnaissance_menu ;;
-            3) web_enumeration_menu ;;
-            4) network_dns_menu ;;
-            5) smb_windows_menu ;;
-            6) service_enumeration_menu ;;
-            7) traffic_analysis_menu ;;
-            8) vulnerability_assessment_menu ;;
-            9) pass_hash_cracking_menu ;;
-            10) utilities_menu ;;
-            11) scan_profiles_menu ;;
-            12) results_menu ;;
-            13) software_dependencies_menu ;;
-            14) settings_menu ;;
-            15) diagnostics_menu ;;
-            16) exploit_menu ;;
-            17) useful_links_menu ;;
+            1) target_scanning_menu ;;
+            2) recon_enumeration_hub_menu ;;
+            3) access_exploitation_menu ;;
+            4) analysis_reporting_menu ;;
+            5) utilities_resources_menu ;;
+            6) system_configuration_menu ;;
             0)
                 echo "Exiting..."
                 exit 0
