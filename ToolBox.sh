@@ -8,7 +8,7 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.29"
+ver="0.30"
 ip="127.0.0.1"
 subnet=32
 port="4444"
@@ -64,6 +64,11 @@ workspace_loaded=false
 config_profiles_dir="$HOME/.tool_box_profiles"
 toolbox_repo_url="https://github.com/NecromancerLich/tool_box"
 toolbox_raw_url="https://raw.githubusercontent.com/NecromancerLich/tool_box/refs/heads/main/ToolBox.sh"
+toolbox_docs_pdf_name="Tool_Box_Functionality_Guide.pdf"
+toolbox_docs_txt_name="Tool_Box_Quick_Guide.txt"
+toolbox_docs_pdf_url="https://raw.githubusercontent.com/NecromancerLich/tool_box/refs/heads/main/${toolbox_docs_pdf_name}"
+toolbox_docs_txt_url="https://raw.githubusercontent.com/NecromancerLich/tool_box/refs/heads/main/${toolbox_docs_txt_name}"
+documentation_download_dir="$PWD"
 
 # Set by run_privileged_command() so elevated actions receive an extra warning.
 command_requires_privilege=false
@@ -6831,6 +6836,186 @@ check_toolbox_update() {
     pause
 }
 
+expand_toolbox_path() {
+    local path="$1"
+    if [[ "$path" == "~" ]]; then
+        path="$HOME"
+    elif [[ "$path" == "~/"* ]]; then
+        path="$HOME/${path#\~/}"
+    fi
+    printf '%s' "$path"
+}
+
+set_documentation_download_dir() {
+    local requested create_choice resolved
+
+    header "Tool_Box - Documentation - Download Location"
+    echo "Current location: $documentation_download_dir"
+    echo ""
+    read -r -p "Enter download directory: " requested
+
+    [[ -n "$requested" ]] || {
+        msg_warn "Download location was not changed."
+        pause
+        return 1
+    }
+
+    requested="$(expand_toolbox_path "$requested")"
+
+    if [[ ! -d "$requested" ]]; then
+        read -r -p "Directory does not exist. Create it? [Y/n]: " create_choice
+        if [[ "$create_choice" =~ ^[Nn]$ ]]; then
+            msg_warn "Download location was not changed."
+            pause
+            return 1
+        fi
+        mkdir -p -- "$requested" 2>/dev/null || {
+            msg_error "Unable to create directory: $requested"
+            pause
+            return 1
+        }
+    fi
+
+    [[ -w "$requested" ]] || {
+        msg_error "Directory is not writable: $requested"
+        pause
+        return 1
+    }
+
+    resolved="$(realpath -m -- "$requested" 2>/dev/null || printf '%s' "$requested")"
+    documentation_download_dir="$resolved"
+    msg_success "Documentation download location set to: $documentation_download_dir"
+    pause
+}
+
+download_toolbox_document() {
+    local url="$1"
+    local filename="$2"
+    local destination temp_file overwrite_choice downloader=""
+
+    destination="${documentation_download_dir%/}/$filename"
+    temp_file="${destination}.part.$$"
+
+    if [[ ! -d "$documentation_download_dir" ]]; then
+        msg_error "Download directory no longer exists: $documentation_download_dir"
+        pause
+        return 1
+    fi
+
+    if [[ ! -w "$documentation_download_dir" ]]; then
+        msg_error "Download directory is not writable: $documentation_download_dir"
+        pause
+        return 1
+    fi
+
+    if [[ -e "$destination" ]]; then
+        read -r -p "File already exists: $destination. Overwrite? [y/N]: " overwrite_choice
+        [[ "$overwrite_choice" =~ ^[Yy]$ ]] || {
+            msg_warn "Download cancelled."
+            pause
+            return 1
+        }
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        downloader="wget"
+    elif command -v curl >/dev/null 2>&1; then
+        downloader="curl"
+    else
+        msg_error "Downloading documentation requires wget or curl."
+        pause
+        return 1
+    fi
+
+    echo ""
+    echo "Source      : $url"
+    echo "Destination : $destination"
+    echo "Downloader  : $downloader"
+    echo ""
+
+    if [[ "$dry_run_mode" == true ]]; then
+        msg_warn "DRY-RUN: Documentation was not downloaded."
+        pause
+        return 0
+    fi
+
+    rm -f -- "$temp_file" 2>/dev/null || true
+
+    if [[ "$downloader" == "wget" ]]; then
+        wget --https-only --timeout=20 --tries=2 -O "$temp_file" "$url" || {
+            rm -f -- "$temp_file" 2>/dev/null || true
+            msg_error "Download failed."
+            pause
+            return 1
+        }
+    else
+        curl -fL --connect-timeout 10 --max-time 120 --retry 1 -o "$temp_file" "$url" || {
+            rm -f -- "$temp_file" 2>/dev/null || true
+            msg_error "Download failed."
+            pause
+            return 1
+        }
+    fi
+
+    [[ -s "$temp_file" ]] || {
+        rm -f -- "$temp_file" 2>/dev/null || true
+        msg_error "The downloaded file was empty."
+        pause
+        return 1
+    }
+
+    mv -f -- "$temp_file" "$destination" || {
+        rm -f -- "$temp_file" 2>/dev/null || true
+        msg_error "Unable to move the downloaded file into place."
+        pause
+        return 1
+    }
+
+    msg_success "Downloaded: $destination"
+    pause
+}
+
+download_all_toolbox_documents() {
+    local failed=false
+
+    # Download both without changing the selected download directory between files.
+    # Each helper pauses so the user can see individual success/failure messages.
+    download_toolbox_document "$toolbox_docs_pdf_url" "$toolbox_docs_pdf_name" || failed=true
+    download_toolbox_document "$toolbox_docs_txt_url" "$toolbox_docs_txt_name" || failed=true
+
+    [[ "$failed" == false ]]
+}
+
+documentation_download_menu() {
+    local choice
+    while true; do
+        header "Tool_Box - Documentation"
+        echo "Repository documentation:"
+        echo ""
+        echo " Full guide : $toolbox_docs_pdf_name"
+        echo " Quick guide: $toolbox_docs_txt_name"
+        echo " Location   : $documentation_download_dir"
+        echo ""
+        echo " 1) Download Full PDF Guide"
+        echo " 2) Download Quick TXT Guide"
+        echo " 3) Download Both Guides"
+        echo " 4) Set Download Location"
+        echo " 5) Open Repository"
+        echo " 0) Back"
+        echo ""
+        menu_prompt choice
+        case "$choice" in
+            1) download_toolbox_document "$toolbox_docs_pdf_url" "$toolbox_docs_pdf_name" ;;
+            2) download_toolbox_document "$toolbox_docs_txt_url" "$toolbox_docs_txt_name" ;;
+            3) download_all_toolbox_documents ;;
+            4) set_documentation_download_dir ;;
+            5) useful_link_page "Tool_Box Repository" "$toolbox_repo_url" "Source repository and documentation for Tool_Box." ;;
+            0) return ;;
+            *) msg_error "Invalid option."; pause ;;
+        esac
+    done
+}
+
 about_toolbox_menu() {
     local choice
     while true; do
@@ -6839,13 +7024,14 @@ about_toolbox_menu() {
         echo "Script    : ${BASH_SOURCE[0]}"
         echo "Repository: $toolbox_repo_url"
         echo ""
-        echo "v0.29 navigation additions: global footer shortcuts, reorganized Useful Links,"
-        echo "and custom per-tool target/query overrides for common network utilities."
+        echo "v0.30 adds repository documentation downloads with a user-selectable"
+        echo "download location, while retaining the v0.29 navigation improvements."
         echo ""
         echo " 1) Open Repository"
         echo " 2) Copy Repository URL"
         echo " 3) Check Repository Version"
         echo " 4) Privilege Guide"
+        echo " 5) Download Documentation"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6857,6 +7043,7 @@ about_toolbox_menu() {
                 ;;
             3) check_toolbox_update ;;
             4) privilege_guide_page ;;
+            5) documentation_download_menu ;;
             0) return ;;
             *) msg_error "Invalid option."; pause ;;
         esac
@@ -6874,6 +7061,7 @@ system_configuration_menu() {
         echo " 3) Tool_Box Diagnostics"
         echo " 4) Privilege / User Session"
         echo " 5) About / Version / Update Check"
+        echo " 6) Documentation / Download Guides"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6883,6 +7071,7 @@ system_configuration_menu() {
             3) diagnostics_menu ;;
             4) privilege_management_menu ;;
             5) about_toolbox_menu ;;
+            6) documentation_download_menu ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
