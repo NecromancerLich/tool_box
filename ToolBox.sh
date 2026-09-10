@@ -8,7 +8,7 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.30"
+ver="0.31"
 ip="127.0.0.1"
 subnet=32
 port="4444"
@@ -116,7 +116,7 @@ installable_software_keys=(
     ssh snmpwalk ldapsearch showmount rpcinfo
 )
 
-declare -A software_display software_command software_package software_status software_man software_repo_status
+declare -A software_display software_command software_package software_status software_man software_repo_status software_description
 
 software_display[nmap]="Nmap"
 software_command[nmap]="nmap"
@@ -248,6 +248,35 @@ software_command[rpcinfo]="rpcinfo"
 software_package[rpcinfo]="rpcbind"
 software_man[rpcinfo]="rpcinfo"
 
+# Short descriptions shown throughout Tool_Box so every supported external
+# tool has a consistent explanation wherever it appears.
+software_description[nmap]="Network mapper for host discovery, port scanning, service/version detection, and NSE-based enumeration."
+software_description[gobuster]="Content discovery tool that brute-forces web paths, virtual hosts, and DNS names from a wordlist."
+software_description[curl]="Command-line data-transfer client commonly used to inspect HTTP/HTTPS requests, responses, headers, and APIs."
+software_description[wget]="Command-line downloader for retrieving files and web content over protocols such as HTTP, HTTPS, and FTP."
+software_description[nc]="Netcat is a general-purpose TCP/UDP client and listener useful for connectivity tests, banners, and basic network I/O."
+software_description[dig]="DNS query utility for inspecting records such as A, AAAA, MX, NS, TXT, and PTR responses."
+software_description[whois]="Queries registration and ownership information published by WHOIS/RDAP-compatible registry services."
+software_description[traceroute]="Shows the network path toward a destination by reporting the intermediate hops that respond along the route."
+software_description[jq]="Command-line JSON processor for formatting, filtering, selecting, and transforming structured JSON data."
+software_description[openssl]="Cryptography and TLS toolkit used here for certificate inspection, hashing, and OpenSSL version information."
+software_description[tcpdump]="Command-line packet capture and analysis tool for viewing or recording network traffic."
+software_description[tshark]="Command-line Wireshark analyzer for reading packet captures and applying protocol/display filters."
+software_description[ffuf]="Fast web fuzzer used for content, parameter, virtual-host, and other wordlist-driven HTTP discovery."
+software_description[feroxbuster]="Recursive web content discovery tool that searches for hidden files and directories using wordlists."
+software_description[whatweb]="Web technology fingerprinting tool that identifies servers, frameworks, CMS platforms, libraries, and related technologies."
+software_description[nikto]="Web server scanner that checks for common security issues, risky files, outdated components, and server misconfigurations."
+software_description[smbclient]="SMB/CIFS client for listing shares and interactively accessing authorized Windows or Samba file shares."
+software_description[enum4linux-ng]="SMB/Windows enumeration utility for collecting information such as shares, users, groups, policies, and host details."
+software_description[arp-scan]="Local-network discovery utility that identifies responding hosts by sending ARP requests on a selected interface."
+software_description[metasploit]="Metasploit Framework console for authorized security testing, module research, validation, and lab exploitation workflows."
+software_description[ipcmd]="Linux iproute2 utility for viewing and managing interfaces, addresses, routes, neighbors, and other network state."
+software_description[ssh]="OpenSSH client for secure remote terminal sessions and SSH connectivity or host-key inspection."
+software_description[snmpwalk]="Queries an SNMP service recursively to enumerate accessible management information and OID values."
+software_description[ldapsearch]="LDAP command-line query client used to inspect directory naming contexts, objects, and attributes."
+software_description[showmount]="Queries an NFS server for exported file systems that it reports through the mount service."
+software_description[rpcinfo]="Queries RPC port-mapper information to identify registered RPC programs, versions, protocols, and ports."
+
 for software_key in "${software_keys[@]}"; do
     software_status["$software_key"]="Unknown"
     software_repo_status["$software_key"]="Unknown"
@@ -307,6 +336,22 @@ status_text() {
 software_status_text() {
     local key="$1"
     status_text "${software_status[$key]}"
+}
+
+show_software_description() {
+    local key="$1"
+    local description="${software_description[$key]:-}"
+
+    if [[ -z "$description" ]]; then
+        description="External command supported by Tool_Box. Use its local man page/help for detailed syntax and options."
+    fi
+
+    printf '%b\n' "${C_DIM}Description:${C_RESET} $description"
+}
+
+show_module_description() {
+    local description="$1"
+    printf '%b\n' "${C_DIM}Description:${C_RESET} $description"
 }
 
 msg_success() {
@@ -757,6 +802,79 @@ run_command_logged_stdin_null() {
         msg_error "Command finished with exit status: $status"
     fi
     [[ "$auto_save_output" == true ]] && msg_success "Saved: $logfile"
+    pause
+    return "$status"
+}
+
+run_command_interactive_logged() {
+    local category="$1"
+    local tool_name="$2"
+    local confirm status logfile rendered
+
+    echo ""
+    echo "----------------------------"
+    printf '%b\n' "${C_BOLD}Ready to run interactive command:${C_RESET}"
+    printf '%b' "  ${C_MAGENTA}"
+    printf '%q ' "${command[@]}"
+    printf '%b\n' "${C_RESET}"
+    [[ "$command_requires_privilege" == true ]] && printf '%b\n' "Privilege: ${C_YELLOW}elevated${C_RESET}"
+    [[ "$dry_run_mode" == true ]] && printf '%b\n' "Mode: $(status_text DRY-RUN) (no execution)"
+    echo "----------------------------"
+
+    if [[ "$auto_save_output" == true ]]; then
+        logfile=$(build_output_file "$category" "$tool_name") || {
+            echo "Unable to create output file."
+            command_requires_privilege=false
+            pause
+            return 1
+        }
+        echo "Interactive transcript will be saved to: $logfile"
+        if ! command -v script >/dev/null 2>&1; then
+            msg_warn "The 'script' utility is unavailable; this interactive session cannot be auto-saved without disrupting its TTY."
+        fi
+    fi
+    echo ""
+
+    if handle_dry_run; then
+        return 0
+    fi
+
+    if ! confirm_elevated_command; then
+        msg_warn "Elevated command cancelled."
+        command_requires_privilege=false
+        pause
+        return 1
+    fi
+
+    read -r -p "Run this command? [y/N]: " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        msg_warn "Command cancelled."
+        command_requires_privilege=false
+        pause
+        return 1
+    fi
+
+    record_command_history "RUN"
+    echo ""
+    if [[ "$auto_save_output" == true ]] && command -v script >/dev/null 2>&1; then
+        printf -v rendered '%q ' "${command[@]}"
+        script -q -e -f -c "${rendered% }" "$logfile"
+        status=$?
+        record_command_result "$status" "$logfile"
+    else
+        "${command[@]}"
+        status=$?
+        record_command_result "$status"
+    fi
+    command_requires_privilege=false
+
+    echo ""
+    if (( status == 0 )); then
+        msg_success "Command finished with exit status: $status"
+    else
+        msg_error "Command finished with exit status: $status"
+    fi
+    [[ "$auto_save_output" == true && -n "${logfile:-}" && -f "$logfile" ]] && msg_success "Saved transcript: $logfile"
     pause
     return "$status"
 }
@@ -1608,6 +1726,7 @@ software_details_menu() {
         echo "Status : ${software_status[$key]}"
         echo "Package: ${software_package[$key]}"
         printf 'APT    : %b\n' "$(repository_status_text "$key")"
+        show_software_description "$key"
         echo ""
         echo " 1) Install / Repair"
         echo " 2) Show Version"
@@ -1868,8 +1987,6 @@ set_nmap() {
     nmap_pn=false
     nmap_t4=false
     nmap_aggressive=false
-    nmap_save_output=false
-    nmap_output_file=""
     nmap_custom=""
 
     nmap_render
@@ -1878,6 +1995,7 @@ set_nmap() {
         refresh_software_status nmap
         header "Tool_Box - Nmap"
         echo "Status: $(software_status_text nmap)"
+        show_software_description nmap
         echo "----------------------------"
         show_command
         echo "----------------------------"
@@ -1894,8 +2012,8 @@ set_nmap() {
         echo " 8) Fast Timing       [-T4] : $(toggle_status "$nmap_t4")"
         echo " 9) Aggressive Scan   [-A]  : $(toggle_status "$nmap_aggressive")"
         echo "10) Custom Options          : $nmap_custom"
-        echo "11) Save Output             : $(toggle_status "$nmap_save_output")"
-        [[ "$nmap_save_output" == true ]] && echo "    Output File             : $nmap_output_file"
+        echo "11) Auto-Save Output (Global): $(toggle_status "$auto_save_output")"
+        [[ "$auto_save_output" == true ]] && echo "    Output Directory         : $output_folder"
         echo "12) Run Command"
         echo "13) View Nmap Man Page / Help"
         echo " 0) Back"
@@ -1913,12 +2031,11 @@ set_nmap() {
             8) nmap_t4=$(toggle_bool "$nmap_t4") ;;
             9) nmap_aggressive=$(toggle_bool "$nmap_aggressive") ;;
             10) read -r -p "Enter custom Nmap options: " nmap_custom ;;
-            11) nmap_save_output=$(toggle_bool "$nmap_save_output") ;;
+            11) auto_save_output=$(toggle_bool "$auto_save_output") ;;
             12)
                 require_program nmap || { pause; continue; }
                 nmap_render
-                [[ "$nmap_save_output" == true ]] && ensure_output_folder || true
-                run_command
+                run_command_logged "nmap" "nmap"
                 ;;
             13) view_man_page nmap ;;
             0) return ;;
@@ -1932,7 +2049,6 @@ nmap_render() {
     local -a custom_args
 
     command=(nmap)
-    nmap_output_file=""
 
     [[ -n "$nmap_scan_type" ]] && command+=("$nmap_scan_type")
     [[ "$nmap_version" == true ]] && command+=("-sV")
@@ -1948,11 +2064,6 @@ nmap_render() {
     fi
 
     command+=("-p" "$port")
-
-    if [[ "$nmap_save_output" == true ]]; then
-        nmap_output_file=$(build_output_file "nmap" "nmap")
-        command+=("-oN" "$nmap_output_file")
-    fi
 
     command+=("$ip/$subnet")
 }
@@ -1971,8 +2082,6 @@ set_gobuster() {
     gobuster_threads="$default_threads"
     gobuster_extensions=""
     gobuster_wordlist="$default_wordlist"
-    gobuster_save_output=false
-    gobuster_output_file=""
     gobuster_custom=""
     gobuster_port="$(get_first_port)"
 
@@ -1982,6 +2091,7 @@ set_gobuster() {
         refresh_software_status gobuster
         header "Tool_Box - Gobuster"
         echo "Status:   $(software_status_text gobuster)"
+        show_software_description gobuster
         echo "Mode:     $gobuster_mode"
         echo "Wordlist: $gobuster_wordlist"
         echo "Port:     $gobuster_port"
@@ -1999,8 +2109,8 @@ set_gobuster() {
         echo " 8) Wordlist           : $gobuster_wordlist"
         echo " 9) Custom Options     : $gobuster_custom"
         echo "10) Port               : $gobuster_port"
-        echo "11) Save Output        : $(toggle_status "$gobuster_save_output")"
-        [[ "$gobuster_save_output" == true ]] && echo "    Output File        : $gobuster_output_file"
+        echo "11) Auto-Save Output (Global): $(toggle_status "$auto_save_output")"
+        [[ "$auto_save_output" == true ]] && echo "    Output Directory   : $output_folder"
         echo "12) Run Command"
         echo "13) View Gobuster Man Page / Help"
         echo " 0) Back"
@@ -2021,11 +2131,11 @@ set_gobuster() {
                 read -r -p "Enter Gobuster port: " gobuster_port
                 validate_port "$gobuster_port" || { echo "Invalid port."; pause; gobuster_port="$(get_first_port)"; }
                 ;;
-            11) gobuster_save_output=$(toggle_bool "$gobuster_save_output") ;;
+            11) auto_save_output=$(toggle_bool "$auto_save_output") ;;
             12)
                 require_program gobuster || { pause; continue; }
                 gobuster_render
-                run_command
+                run_command_logged "web" "gobuster"
                 ;;
             13) view_man_page gobuster ;;
             0) return ;;
@@ -2040,7 +2150,6 @@ gobuster_render() {
     local -a custom_args
 
     command=(gobuster "$gobuster_mode")
-    gobuster_output_file=""
 
     [[ "$gobuster_https" == true ]] && protocol="https" || protocol="http"
     url="$protocol://$ip:$gobuster_port"
@@ -2055,11 +2164,6 @@ gobuster_render() {
     if [[ -n "$gobuster_custom" ]]; then
         read -r -a custom_args <<< "$gobuster_custom"
         command+=("${custom_args[@]}")
-    fi
-
-    if [[ "$gobuster_save_output" == true ]]; then
-        gobuster_output_file=$(build_output_file "web" "gobuster")
-        command+=("-o" "$gobuster_output_file")
     fi
 }
 
@@ -2084,6 +2188,7 @@ ffuf_menu() {
         refresh_software_status ffuf
         header "Tool_Box - FFUF"
         echo "FFUF Status: $(software_status_text ffuf)"
+        show_software_description ffuf
         show_command
         echo ""
         echo " 1) Protocol      : $protocol"
@@ -2134,6 +2239,7 @@ feroxbuster_menu() {
         refresh_software_status feroxbuster
         header "Tool_Box - Feroxbuster"
         echo "Feroxbuster Status: $(software_status_text feroxbuster)"
+        show_software_description feroxbuster
         show_command
         echo ""
         echo " 1) Protocol      : $protocol"
@@ -2175,6 +2281,7 @@ whatweb_menu() {
         refresh_software_status whatweb
         header "Tool_Box - WhatWeb"
         echo "WhatWeb Status: $(software_status_text whatweb)"
+        show_software_description whatweb
         show_command
         echo ""
         echo " 1) Protocol: $protocol"
@@ -2203,6 +2310,7 @@ nikto_menu() {
         refresh_software_status nikto
         header "Tool_Box - Nikto"
         echo "Nikto Status: $(software_status_text nikto)"
+        show_software_description nikto
         show_command
         echo ""
         echo " 1) Protocol: $protocol"
@@ -2231,6 +2339,7 @@ http_headers_menu() {
         refresh_software_status curl
         header "Tool_Box - HTTP Headers (Curl)"
         echo "Curl Status: $(software_status_text curl)"
+        show_software_description curl
         show_command
         echo ""
         echo " 1) Protocol: $protocol"
@@ -2260,6 +2369,7 @@ tls_certificate_menu() {
         refresh_software_status openssl
         header "Tool_Box - TLS Certificate (OpenSSL)"
         echo "OpenSSL Status: $(software_status_text openssl)"
+        show_software_description openssl
         show_command
         echo ""
         echo " 1) Port       : $web_port"
@@ -2288,6 +2398,7 @@ test_http_menu() {
         refresh_software_status curl
         header "Tool_Box - Test HTTP/HTTPS"
         echo "Curl Status: $(software_status_text curl)"
+        show_software_description curl
         show_command
         echo ""
         echo " 1) Protocol: $protocol"
@@ -2948,6 +3059,7 @@ host_discovery_menu() {
         refresh_software_status nmap
         header "Tool_Box - Host Discovery"
         echo "Nmap Status: $(software_status_text nmap)"
+        show_software_description nmap
         show_command
         echo ""
         echo " 1) Run Host Discovery"
@@ -2970,6 +3082,7 @@ port_discovery_menu() {
         refresh_software_status nmap
         header "Tool_Box - Port Discovery"
         echo "Nmap Status: $(software_status_text nmap)"
+        show_software_description nmap
         show_command
         echo ""
         echo " 1) Run Port Discovery"
@@ -2992,6 +3105,7 @@ service_detection_menu() {
         refresh_software_status nmap
         header "Tool_Box - Service Detection"
         echo "Nmap Status: $(software_status_text nmap)"
+        show_software_description nmap
         show_command
         echo ""
         echo " 1) Run Service Detection"
@@ -3079,6 +3193,7 @@ dns_lookup_menu() {
         refresh_software_status dig
         header "Tool_Box - DNS Lookup (Dig)"
         echo "Status: $(software_status_text dig)"
+        show_software_description dig
         show_command
         echo ""
         echo " 1) Query: $query"
@@ -3103,6 +3218,7 @@ reverse_dns_menu() {
         refresh_software_status dig
         header "Tool_Box - Reverse DNS"
         echo "Dig Status: $(software_status_text dig)"
+        show_software_description dig
         show_command
         echo ""
         echo " 1) IP Address: $query  [custom allowed]"
@@ -3130,6 +3246,7 @@ whois_menu() {
         refresh_software_status whois
         header "Tool_Box - WHOIS"
         echo "Status: $(software_status_text whois)"
+        show_software_description whois
         show_command
         echo ""
         echo " 1) IP / Domain: $query  [custom allowed]"
@@ -3159,6 +3276,7 @@ traceroute_menu() {
         refresh_software_status traceroute
         header "Tool_Box - Traceroute"
         echo "Status: $(software_status_text traceroute)"
+        show_software_description traceroute
         show_command
         echo ""
         echo " 1) Target: $target  [custom IP/domain allowed]"
@@ -3188,6 +3306,7 @@ arp_scan_menu() {
         refresh_software_status arp-scan
         header "Tool_Box - ARP Scan"
         echo "arp-scan Status: $(software_status_text arp-scan)"
+        show_software_description arp-scan
         show_command
         echo ""
         echo " 1) Run Local Network ARP Scan"
@@ -3211,6 +3330,7 @@ netcat_test_menu() {
         refresh_software_status nc
         header "Tool_Box - Netcat TCP Test"
         echo "Netcat Status: $(software_status_text nc)"
+        show_software_description nc
         show_command
         echo ""
         echo " 1) Target: $target  [custom IP/domain allowed]"
@@ -3242,6 +3362,7 @@ local_interfaces_page() {
         refresh_software_status ipcmd
         header "Tool_Box - Local Interfaces (ip)"
         echo "ip Status: $(software_status_text ipcmd)"
+        show_software_description ipcmd
         show_command
         echo ""
         echo " 1) Show Local Interfaces"
@@ -3250,7 +3371,7 @@ local_interfaces_page() {
         echo ""
         menu_prompt choice
         case "$choice" in
-            1) require_program ipcmd && run_command || pause ;;
+            1) require_program ipcmd && run_command_logged "network" "ip" || pause ;;
             2) view_man_page ipcmd ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
@@ -3265,6 +3386,7 @@ routing_table_page() {
         refresh_software_status ipcmd
         header "Tool_Box - Routing Table (ip)"
         echo "ip Status: $(software_status_text ipcmd)"
+        show_software_description ipcmd
         show_command
         echo ""
         echo " 1) Show Routing Table"
@@ -3273,7 +3395,7 @@ routing_table_page() {
         echo ""
         menu_prompt choice
         case "$choice" in
-            1) require_program ipcmd && run_command || pause ;;
+            1) require_program ipcmd && run_command_logged "network" "ip" || pause ;;
             2) view_man_page ipcmd ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
@@ -3355,6 +3477,7 @@ enum4linux_menu() {
         refresh_software_status enum4linux-ng
         header "Tool_Box - enum4linux-ng"
         echo "enum4linux-ng Status: $(software_status_text enum4linux-ng)"
+        show_software_description enum4linux-ng
         show_command
         echo ""
         echo " 1) Run SMB Enumeration"
@@ -3377,6 +3500,7 @@ smb_list_shares_menu() {
         refresh_software_status smbclient
         header "Tool_Box - List SMB Shares"
         echo "SMBClient Status: $(software_status_text smbclient)"
+        show_software_description smbclient
         show_command
         echo ""
         echo " 1) List Anonymous Shares"
@@ -3409,6 +3533,7 @@ smb_client_menu() {
         refresh_software_status smbclient
         header "Tool_Box - SMB Client"
         echo "SMBClient Status: $(software_status_text smbclient)"
+        show_software_description smbclient
         show_command
         echo ""
         echo " 1) Share   : ${share:-Not set}"
@@ -3422,7 +3547,7 @@ smb_client_menu() {
             2) read -r -p "Enter username (blank for anonymous): " username ;;
             3)
                 [[ -n "$share" ]] || { echo "Set a share first."; pause; continue; }
-                require_program smbclient && run_command || pause
+                require_program smbclient && run_command_interactive_logged "smb" "smbclient-session" || pause
                 ;;
             4) view_man_page smbclient ;;
             0) return ;;
@@ -3438,6 +3563,7 @@ nmap_smb_scripts_menu() {
         refresh_software_status nmap
         header "Tool_Box - Nmap SMB Information"
         echo "Nmap Status: $(software_status_text nmap)"
+        show_software_description nmap
         show_command
         echo ""
         echo " 1) Run SMB Information Scripts"
@@ -3460,6 +3586,7 @@ netbios_info_menu() {
         refresh_software_status nmap
         header "Tool_Box - NetBIOS Information"
         echo "Nmap Status: $(software_status_text nmap)"
+        show_software_description nmap
         show_command
         echo ""
         echo " 1) Run NetBIOS Information Scan"
@@ -3544,6 +3671,8 @@ ssh_enumeration_menu() {
         header "Tool_Box - SSH Enumeration"
         echo "OpenSSH Client: $(software_status_text ssh)"
         echo "Nmap          : $(software_status_text nmap)"
+        show_software_description ssh
+        show_software_description nmap
         echo "Port          : $svc_port"
         echo ""
         echo " 1) Set SSH Port"
@@ -3591,6 +3720,7 @@ ftp_enumeration_menu() {
         refresh_software_status nmap
         refresh_software_status nc
         header "Tool_Box - FTP Enumeration"
+        show_module_description "Uses banner checks and Nmap service scripts to collect basic information from an authorized FTP service."
         echo "Nmap   : $(software_status_text nmap)"
         echo "Netcat : $(software_status_text nc)"
         echo "Port   : $svc_port"
@@ -3630,6 +3760,7 @@ smtp_enumeration_menu() {
         refresh_software_status nmap
         refresh_software_status nc
         header "Tool_Box - SMTP Enumeration"
+        show_module_description "Uses banner checks and Nmap SMTP scripts to inspect commands and service details exposed by an authorized SMTP server."
         echo "Nmap   : $(software_status_text nmap)"
         echo "Netcat : $(software_status_text nc)"
         echo "Port   : $svc_port"
@@ -3674,6 +3805,7 @@ snmp_enumeration_menu() {
         refresh_software_status snmpwalk
         header "Tool_Box - SNMP Enumeration"
         echo "SNMPWalk : $(software_status_text snmpwalk)"
+        show_software_description snmpwalk
         echo "Port     : $svc_port"
         echo "Community: $community"
         echo "OID      : $oid"
@@ -3711,6 +3843,7 @@ ldap_enumeration_menu() {
         refresh_software_status ldapsearch
         header "Tool_Box - LDAP Enumeration"
         echo "LDAPSearch: $(software_status_text ldapsearch)"
+        show_software_description ldapsearch
         echo "Port      : $svc_port"
         echo "Base DN   : ${base_dn:-Not set}"
         echo ""
@@ -3752,6 +3885,8 @@ nfs_enumeration_menu() {
         header "Tool_Box - NFS Enumeration"
         echo "Showmount: $(software_status_text showmount)"
         echo "RPCInfo  : $(software_status_text rpcinfo)"
+        show_software_description showmount
+        show_software_description rpcinfo
         echo ""
         echo " 1) List Exported NFS Shares"
         echo " 2) Show RPC Services"
@@ -3783,6 +3918,7 @@ rpc_enumeration_menu() {
         refresh_software_status rpcinfo
         header "Tool_Box - RPC Enumeration"
         echo "RPCInfo: $(software_status_text rpcinfo)"
+        show_software_description rpcinfo
         echo ""
         echo " 1) List Registered RPC Programs"
         echo " 2) View RPCInfo Man Page / Help"
@@ -3806,6 +3942,7 @@ database_services_menu() {
     while true; do
         refresh_software_status nmap
         header "Tool_Box - Database Service Detection"
+        show_module_description "Uses Nmap service detection against common database ports to identify database services exposed by the target."
         echo "Nmap : $(software_status_text nmap)"
         echo "Ports: $db_ports"
         echo ""
@@ -3930,7 +4067,9 @@ vulnerability_assessment_menu() {
     while true; do
         refresh_software_status nmap
         header "Tool_Box - Vulnerability Assessment"
+        show_module_description "Runs selected Nmap/NSE assessment checks for common configuration and exposure issues on systems you are authorized to test."
         echo "Nmap Status: $(software_status_text nmap)"
+        show_software_description nmap
         echo "Port       : $assess_port"
         echo ""
         echo "Low-impact assessment helpers for systems you are authorized to test."
@@ -4004,6 +4143,7 @@ tcpdump_capture_menu() {
         refresh_software_status tcpdump
         header "Tool_Box - tcpdump Capture"
         echo "tcpdump Status: $(software_status_text tcpdump)"
+        show_software_description tcpdump
         echo "Filter    : $filter_desc"
         echo "Interface : $iface"
         echo "Packet max: $count"
@@ -4032,7 +4172,7 @@ tcpdump_capture_menu() {
                 ;;
             4)
                 require_program tcpdump || { pause; continue; }
-                run_command
+                run_command_logged "traffic" "tcpdump-capture"
                 ;;
             5) view_man_page tcpdump ;;
             0) command_requires_privilege=false; return ;;
@@ -4048,6 +4188,7 @@ tcpdump_read_menu() {
         refresh_software_status tcpdump
         header "Tool_Box - Read PCAP with tcpdump"
         echo "tcpdump Status: $(software_status_text tcpdump)"
+        show_software_description tcpdump
         echo "PCAP: ${pcap_file:-Not set}"
         [[ -n "$pcap_file" ]] && show_command
         echo ""
@@ -4076,6 +4217,7 @@ tcpdump_interfaces_menu() {
         refresh_software_status tcpdump
         header "Tool_Box - Capture Interfaces"
         echo "tcpdump Status: $(software_status_text tcpdump)"
+        show_software_description tcpdump
         show_command
         echo ""
         echo " 1) List Interfaces"
@@ -4083,7 +4225,7 @@ tcpdump_interfaces_menu() {
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program tcpdump && run_command || pause ;;
+            1) require_program tcpdump && run_command_logged "traffic" "tcpdump" || pause ;;
             2) view_man_page tcpdump ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
@@ -4099,6 +4241,7 @@ tshark_analysis_menu() {
         refresh_software_status tshark
         header "Tool_Box - TShark Analysis"
         echo "TShark Status: $(software_status_text tshark)"
+        show_software_description tshark
         echo "PCAP  : ${pcap_file:-Not set}"
         echo "Filter: ${display_filter:-None}"
         [[ -n "$pcap_file" ]] && show_command
@@ -4196,6 +4339,7 @@ curl_utility_menu() {
         header "Tool_Box - Curl"
         refresh_software_status curl
         echo "Software: $(software_status_text curl)"
+        show_software_description curl
         echo "URL: $url"
         show_command
         echo ""
@@ -4223,6 +4367,7 @@ wget_utility_menu() {
         header "Tool_Box - Wget"
         refresh_software_status wget
         echo "Software: $(software_status_text wget)"
+        show_software_description wget
         echo "URL: $url"
         show_command
         echo ""
@@ -4233,7 +4378,7 @@ wget_utility_menu() {
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter URL: " url ;;
-            2) require_program wget && run_command || pause ;;
+            2) require_program wget && run_command_logged "utilities" "wget" || pause ;;
             3) view_man_page wget ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
@@ -4248,6 +4393,7 @@ jq_utility_menu() {
         header "Tool_Box - JQ"
         refresh_software_status jq
         echo "Software: $(software_status_text jq)"
+        show_software_description jq
         echo "JSON File: ${json_file:-Not set}"
         [[ -n "$json_file" ]] && show_command
         echo ""
@@ -4275,6 +4421,7 @@ openssl_utility_menu() {
         header "Tool_Box - OpenSSL"
         refresh_software_status openssl
         echo "Software: $(software_status_text openssl)"
+        show_software_description openssl
         echo ""
         echo " 1) Show OpenSSL Version"
         echo " 2) SHA-256 Hash a File"
@@ -4285,7 +4432,7 @@ openssl_utility_menu() {
         case "$choice" in
             1)
                 command=(openssl version -a)
-                require_program openssl && run_command || pause
+                require_program openssl && run_command_logged "utilities" "openssl-version" || pause
                 ;;
             2)
                 read -r -p "Enter file path: " file_path
@@ -5665,6 +5812,7 @@ metasploit_menu() {
     while true; do
         command=(msfconsole)
         header "Tool_Box - Metasploit"
+        show_software_description metasploit
         echo "This page only launches the local Metasploit console; Tool_Box does not install it."
         echo ""
         echo " 1) Launch msfconsole"
@@ -5675,7 +5823,7 @@ metasploit_menu() {
         menu_prompt choice
 
         case "$choice" in
-            1) require_program metasploit && run_command || pause ;;
+            1) require_program metasploit && run_command_interactive_logged "exploit" "metasploit-session" || pause ;;
             2)
                 header "Tool_Box - Metasploit Version"
                 software_version_output metasploit
