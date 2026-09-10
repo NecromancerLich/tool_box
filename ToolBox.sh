@@ -8,7 +8,7 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.31"
+ver="0.32"
 ip="127.0.0.1"
 subnet=32
 port="4444"
@@ -82,12 +82,410 @@ toolbox_nav_restart="${TOOLBOX_NAV_RESTART:-false}"
 # Command currently being previewed.
 command=()
 
+# v0.32: module definitions are data, never sourced or evaluated.
+toolbox_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+external_modules_dir="$toolbox_script_dir/Toolboxmodules"
+external_modules_config="${config_file%.conf}.modules.conf"
+toolbox_domain=""
+toolbox_url=""
+toolbox_username=""
+toolbox_password=""
+declare -a external_selected=() external_files=() external_loaded=()
+declare -A external_name=() external_description=() external_category=() external_command=() external_options=()
+declare -A external_categories=()
+external_categories["target & scanning"]="target & scanning"
+external_categories["reconnaissance & enumeration"]="reconnaissance & enumeration"
+external_categories["access & exploitation"]="access & exploitation"
+external_categories["analysis & reporting"]="analysis & reporting"
+external_categories["utilities & resources"]="utilities & resources"
+external_categories["system & configuration"]="system & configuration"
+external_categories["reconnaissance"]="reconnaissance"
+external_categories["web enumeration"]="web enumeration"
+external_categories["network / dns"]="network / dns"
+external_categories["smb / windows"]="smb / windows"
+external_categories["service enumeration"]="service enumeration"
+external_categories["vulnerability assessment"]="vulnerability assessment"
+external_categories["traffic analysis"]="traffic analysis"
+external_categories["results / reporting"]="results / reporting"
+external_categories["command-line utilities"]="command-line utilities"
+external_categories["network information"]="network information"
+external_categories["text / encoding tools"]="text / encoding tools"
+external_categories["useful links"]="useful links"
+external_categories["shell / session tools"]="shell / session tools"
+external_categories["data / encoding / analysis"]="data / encoding / analysis"
+external_categories["privilege references"]="privilege references"
+external_categories["web security"]="web security"
+external_categories["recon / vulnerabilities"]="recon / vulnerabilities"
+external_categories["payloads / wordlists / cheatsheets"]="payloads / wordlists / cheatsheets"
+external_categories["training"]="training"
+external_categories["pass/hash cracking"]="pass/hash cracking"
+external_categories["exploit"]="exploit"
+external_categories["scan profiles"]="scan profiles"
+external_categories["workspace / project"]="workspace / project"
+external_categories["settings"]="settings"
+external_categories["documentation"]="documentation"
+external_categories["recon & enumeration"]="reconnaissance & enumeration"
+external_categories["utilities"]="command-line utilities"
+external_categories["network information / vpn status"]="network information"
+external_categories["linux / windows privilege references"]="privilege references"
+external_categories["recon / vulnerability references"]="recon / vulnerabilities"
+external_categories["payloads / wordlists / cheat sheets"]="payloads / wordlists / cheatsheets"
+external_categories["pass / hash cracking"]="pass/hash cracking"
+
+
+external_trim() {
+    external_trimmed="$1"
+    external_trimmed="${external_trimmed#"${external_trimmed%%[![:space:]]*}"}"
+    external_trimmed="${external_trimmed%"${external_trimmed##*[![:space:]]}"}"
+}
+
+# Tokenize a program and arguments without Bash evaluation. Quotes group words;
+# escapes quote the following character. Substitution happens AFTER tokenizing.
+external_tokenize() {
+    local text="$1" ch quote="" token="" started=false escaped=false i
+    external_tokens=()
+    for ((i=0; i<${#text}; i++)); do
+        ch="${text:i:1}"
+        if [[ "$escaped" == true ]]; then
+            if [[ "$quote" == '"' && "$ch" != '$' && "$ch" != '`' && "$ch" != '"' && "$ch" != '\' ]]; then token+='\'; fi
+            token+="$ch"; escaped=false; started=true; continue
+        fi
+        if [[ "$quote" == "'" ]]; then
+            if [[ "$ch" == "'" ]]; then quote=""; else token+="$ch"; fi
+        elif [[ "$ch" == '\' ]]; then
+            escaped=true; started=true
+        elif [[ -n "$quote" ]]; then
+            if [[ "$ch" == '"' ]]; then quote=""; else token+="$ch"; fi
+        else
+            case "$ch" in
+                "'"|'"') quote="$ch"; started=true ;;
+                ' '|$'\t')
+                    if [[ "$started" == true ]]; then external_tokens+=("$token"); fi
+                    token=""; started=false ;;
+                '|'|'&'|';'|'`'|'$') return 1 ;;
+                *) token+="$ch"; started=true ;;
+            esac
+        fi
+    done
+    [[ -z "$quote" && "$escaped" == false ]] || return 1
+    [[ "$started" == true ]] && external_tokens+=("$token")
+    ((${#external_tokens[@]} > 0)) || return 1
+    # Angle brackets are reserved exclusively for placeholders.
+    local item residue pattern='<<[A-Z_][A-Z0-9_]*>>'
+    for item in "${external_tokens[@]}"; do
+        residue="$item"
+        while [[ "$residue" =~ $pattern ]]; do residue="${residue/"${BASH_REMATCH[0]}"/}"; done
+        [[ "$residue" != *'<'* && "$residue" != *'>'* ]] || return 1
+    done
+}
+
+external_parse() {
+    local file="$1" line key value in_options=false number=0 label
+    local -A fields=() labels=()
+    parsed_name=""; parsed_description=""; parsed_category=""; parsed_command=""; parsed_options=""
+    [[ -f "$file" && -r "$file" && ! -L "$file" ]] || { msg_warn "Unreadable or linked module: $file"; return 1; }
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((number+=1)); line="${line%$'\r'}"
+        [[ $number == 1 ]] && line="${line#$'\xef\xbb\xbf'}"
+        external_trim "$line"; line="$external_trimmed"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ "$line" != *:* ]]; then msg_warn "$file:$number: expected Field: value"; return 1; fi
+        external_trim "${line%%:*}"; key="$external_trimmed"
+        external_trim "${line#*:}"; value="$external_trimmed"
+        [[ -n "$key" && "$key" != *$'\t'* ]] || { msg_warn "$file:$number: invalid field or option name"; return 1; }
+        if [[ "$in_options" == true ]]; then
+            label="${key,,}"
+            [[ -n "$key" && -n "$value" && -z "${labels[$label]+x}" ]] || { msg_warn "$file:$number: empty or duplicate option"; return 1; }
+            external_tokenize "$value" || { msg_warn "$file:$number: invalid option arguments"; return 1; }
+            labels["$label"]=1
+            parsed_options+="$key"$'\t'"$value"$'\n'
+            continue
+        fi
+        key="${key,,}"
+        [[ -z "${fields[$key]+x}" ]] || { msg_warn "$file:$number: duplicate field $key"; return 1; }
+        fields["$key"]=1
+        case "$key" in
+            name) parsed_name="$value" ;;
+            description) parsed_description="$value" ;;
+            category) parsed_category="${value,,}" ;;
+            command) parsed_command="$value" ;;
+            options) [[ -z "$value" ]] || { msg_warn "$file:$number: options must be a section"; return 1; }; in_options=true ;;
+            *) msg_warn "$file:$number: unknown field '$key' (use Category, not Catagory)"; return 1 ;;
+        esac
+    done < "$file"
+    [[ -n "$parsed_name" && -n "$parsed_description" && -n "$parsed_category" && -n "$parsed_command" ]] || { msg_warn "$file: Name, Description, Category and Command are required"; return 1; }
+    [[ -n "${external_categories[$parsed_category]:-}" ]] || { msg_warn "$file: unknown category '$parsed_category'"; return 1; }
+    parsed_category="${external_categories[$parsed_category]}"
+    external_tokenize "$parsed_command" || { msg_warn "$file: invalid Command (use a program and arguments)"; return 1; }
+    [[ "${external_tokens[0]}" != *'<<'* ]] || { msg_warn "$file: the executable cannot be a placeholder"; return 1; }
+}
+
+external_scan() {
+    external_files=()
+    local file
+    [[ -d "$external_modules_dir" ]] || return 0
+    for file in "$external_modules_dir"/*; do
+        [[ -f "$file" && ! -L "$file" && "${file,,}" == *.txt ]] && external_files+=("${file##*/}")
+    done
+    return 0
+}
+
+external_load() {
+    local file="$1" existing key
+    [[ -n "$file" && "$file" != */* && "$file" != *\\* && "$file" != *$'\n'* && "${file,,}" == *.txt ]] || { msg_warn "Invalid module filename: $file"; return 1; }
+    external_parse "$external_modules_dir/$file" || return 1
+    for existing in "${external_loaded[@]}"; do
+        [[ "$existing" == "$file" ]] && { msg_warn "Already loaded: $file"; return 1; }
+        [[ "${external_name[$existing],,}" == "${parsed_name,,}" ]] && { msg_warn "Duplicate module name rejected: $parsed_name"; return 1; }
+    done
+    for key in "${software_keys[@]}"; do
+        [[ "${key,,}" == "${parsed_name,,}" || "${software_display[$key],,}" == "${parsed_name,,}" ]] && { msg_warn "Name conflicts with a built-in tool: $parsed_name"; return 1; }
+    done
+    external_loaded+=("$file")
+    external_name["$file"]="$parsed_name"
+    external_description["$file"]="$parsed_description"
+    external_category["$file"]="$parsed_category"
+    external_command["$file"]="$parsed_command"
+    external_options["$file"]="$parsed_options"
+}
+
+external_save_selection() {
+    local temp
+    temp=$(mktemp "${external_modules_config}.XXXXXX") || { msg_warn "Cannot save module selection"; return 1; }
+    if { for external_saved_file in "${external_selected[@]}"; do printf '%s\n' "$external_saved_file"; done; } > "$temp" && mv -- "$temp" "$external_modules_config"; then
+        return 0
+    fi
+    rm -f -- "$temp"
+    msg_warn "Cannot save module selection; restart may restore the previous selection."
+    return 1
+}
+
+external_reload() {
+    local file failed=false
+    external_loaded=(); external_name=(); external_description=(); external_category=(); external_command=(); external_options=()
+    for file in "${external_selected[@]}"; do external_load "$file" || failed=true; done
+    [[ "$failed" == false ]]
+}
+
+external_restore() {
+    external_selected=()
+    local file
+    if [[ -r "$external_modules_config" ]]; then
+        while IFS= read -r file || [[ -n "$file" ]]; do
+            file="${file%$'\r'}"; [[ -n "$file" ]] && external_selected+=("$file")
+        done < "$external_modules_config"
+    fi
+    external_scan
+    external_reload
+}
+
+external_render() {
+    local category="$1" file index=0
+    for file in "${external_loaded[@]}"; do
+        ((index+=1))
+        [[ "${external_category[$file]}" == "$category" ]] && printf ' E%d) %s [external]\n' "$index" "${external_name[$file]}"
+    done
+    return 0
+}
+
+external_dispatch() {
+    local choice="$1" category="$2" file index=0
+    for file in "${external_loaded[@]}"; do
+        ((index+=1))
+        if [[ "${choice^^}" == "E$index" && "${external_category[$file]}" == "$category" ]]; then
+            external_module_menu "$file"
+            return 0
+        fi
+    done
+    return 1
+}
+
+external_resolve_value() {
+    local name="$1"
+    case "$name" in
+        IP) external_value="$ip" ;;
+        PORT) external_value="$port" ;;
+        SUBNET) external_value="$subnet" ;;
+        DOMAIN) external_value="$toolbox_domain" ;;
+        URL) external_value="$toolbox_url" ;;
+        WORDLIST) external_value="$default_wordlist" ;;
+        USERNAME) external_value="$toolbox_username" ;;
+        PASSWORD) external_value="$toolbox_password" ;;
+        WORKSPACE) external_value="$workspace_name" ;;
+        *) external_value="" ;;
+    esac
+}
+
+external_build_command() {
+    local template="$1" mode="$2" token remaining part name value pattern='<<([A-Z_][A-Z0-9_]*)>>'
+    local -A answers=()
+    external_tokenize "$template" || return 1
+    local -a tokens=("${external_tokens[@]}")
+    command=(); command_display=()
+    for token in "${tokens[@]}"; do
+        remaining="$token"; part=""
+        while [[ "$remaining" =~ $pattern ]]; do
+            name="${BASH_REMATCH[1]}"
+            part+="${remaining%%"<<$name>>"*}"
+            remaining="${remaining#*"<<$name>>"}"
+            if [[ -n "${answers[$name]+x}" ]]; then
+                value="${answers[$name]}"
+            else
+                external_resolve_value "$name"; value="$external_value"
+                if [[ "$mode" == preview && ( -z "$value" || "$name" == PASSWORD ) ]]; then
+                    value="<<$name>>"
+                elif [[ -z "$value" ]]; then
+                    if [[ "$name" == PASSWORD ]]; then
+                        IFS= read -r -s -p "Value for $name (blank cancels): " value || return 1; echo
+                    else
+                        IFS= read -r -p "Value for $name (blank cancels): " value || return 1
+                    fi
+                    [[ -n "$value" ]] || return 1
+                fi
+                answers["$name"]="$value"
+            fi
+            part+="$value"
+        done
+        command+=("$part$remaining")
+        if [[ "$token" == *'<<PASSWORD>>'* ]]; then command_display+=('[REDACTED]'); else command_display+=("$part$remaining"); fi
+    done
+}
+
+external_module_menu() {
+    local file="$1" choice label args line template i selected_index log_name
+    local -a labels=() fragments=() enabled=()
+    local -a command_display=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        labels+=("${line%%$'\t'*}"); fragments+=("${line#*$'\t'}"); enabled+=(false)
+    done <<< "${external_options[$file]}"
+    while true; do
+        header "Tool_Box - ${external_name[$file]}"
+        printf 'Description: %s\n' "${external_description[$file]}"
+        template="${external_command[$file]}"
+        for ((i=0; i<${#labels[@]}; i++)); do
+            printf ' %d) %s: %s\n' "$((i+1))" "${labels[i]}" "$(toggle_status "${enabled[i]}")"
+            [[ "${enabled[i]}" == true ]] && template+=" ${fragments[i]}"
+        done
+        external_build_command "$template" preview && show_command
+        echo ' R) Run'
+        echo ' 0) Back'
+        menu_prompt choice || return
+        case "$choice" in
+            0) return ;;
+            r|R)
+                if external_build_command "$template" run; then
+                    if command -v -- "${command[0]}" >/dev/null 2>&1; then
+                        log_name="${external_name[$file]//[^a-zA-Z0-9_-]/_}"
+                        run_command_logged external "$log_name"
+                    else msg_warn "Executable unavailable: ${command[0]}"; pause; fi
+                else msg_warn 'Command cancelled: a value was missing.'; pause; fi ;;
+            *)
+                selected_index=-1
+                for ((i=0; i<${#labels[@]}; i++)); do [[ "$choice" == "$((i+1))" ]] && selected_index=$i; done
+                if ((selected_index >= 0)); then enabled[selected_index]=$(toggle_bool "${enabled[selected_index]}"); else msg_warn 'Invalid option'; pause; fi ;;
+        esac
+    done
+}
+
+external_management_menu() {
+    local choice file number selected found i
+    while true; do
+        header 'Tool_Box - External Modules'
+        printf 'Folder: %s\nLoaded: %s   Selected: %s\n' "$external_modules_dir" "${#external_loaded[@]}" "${#external_selected[@]}"
+        echo ' 1) List discovered and selected modules'
+        echo ' 2) Load one'
+        echo ' 3) Load all'
+        echo ' 4) Unload one'
+        echo ' 5) Unload all'
+        echo ' 6) Rescan / reload selected modules'
+        echo ' 0) Back'
+        menu_prompt choice || return
+        case "$choice" in
+            0) return ;;
+            1)
+                external_scan
+                for file in "${external_files[@]}"; do
+                    printf '\nFile: %s\n' "$file"
+                    if external_parse "$external_modules_dir/$file"; then printf '  %s | %s\n  %s\n' "$parsed_name" "$parsed_category" "$parsed_description"; fi
+                done
+                printf '\nSelected for restart:\n'; for file in "${external_selected[@]}"; do
+                    if [[ -n "${external_name[$file]+x}" ]]; then printf '  %s [loaded]\n' "$file"; else printf '  %s [unavailable/invalid]\n' "$file"; fi
+                done
+                [[ -d "$external_modules_dir" ]] || printf 'Create this folder and add .txt files: %s\n' "$external_modules_dir"
+                pause ;;
+            2|3)
+                external_scan
+                local -a candidates=("${external_files[@]}")
+                if [[ "$choice" == 2 ]]; then
+                    number=0; for file in "${candidates[@]}"; do ((number+=1)); printf ' %d) %s\n' "$number" "$file"; done
+                    IFS= read -r -p 'File number (0 cancels): ' selected || return
+                    found=""; number=0
+                    for file in "${candidates[@]}"; do ((number+=1)); [[ "$selected" == "$number" ]] && found="$file"; done
+                    [[ -n "$found" ]] || continue
+                    candidates=("$found")
+                fi
+                for file in "${candidates[@]}"; do
+                    [[ -n "${external_name[$file]+x}" ]] && continue
+                    if external_load "$file"; then
+                        found=false; for selected in "${external_selected[@]}"; do [[ "$selected" == "$file" ]] && found=true; done
+                        [[ "$found" == true ]] || external_selected+=("$file")
+                        printf 'Loaded: %s\n' "$file"
+                    fi
+                done
+                external_save_selection; pause ;;
+            4)
+                number=0; for file in "${external_selected[@]}"; do ((number+=1)); printf ' %d) %s\n' "$number" "$file"; done
+                IFS= read -r -p 'Selection number (0 cancels): ' selected || return
+                local -a retained=()
+                number=0; for file in "${external_selected[@]}"; do ((number+=1)); [[ "$selected" == "$number" ]] || retained+=("$file"); done
+                external_selected=("${retained[@]}"); external_reload; external_save_selection; pause ;;
+            5) external_selected=(); external_reload; external_save_selection; pause ;;
+            6) external_scan; external_reload; pause ;;
+            *) msg_warn 'Invalid option'; pause ;;
+        esac
+    done
+}
+
+ping_menu() {
+    local choice ping_target="" ping_count=4 ping_timeout=2 ping_numeric=false value
+    while true; do
+        header 'Tool_Box - Ping'
+        show_software_description ping
+        command=(ping -c "$ping_count" -W "$ping_timeout")
+        [[ "$ping_numeric" == true ]] && command+=(-n)
+        command+=(-- "${ping_target:-$ip}")
+        printf ' 1) IP / Domain: %s\n 2) Requests: %s\n 3) Reply timeout (seconds): %s\n 4) Numeric output: %s\n' "${ping_target:-$ip}" "$ping_count" "$ping_timeout" "$(toggle_status "$ping_numeric")"
+        echo ' 5) Reset to global target'
+        echo ' 6) Run Ping'
+        echo ' 7) Help / Man Page'
+        echo ' 0) Back'
+        show_command
+        menu_prompt choice || return
+        case "$choice" in
+            0) return ;;
+            1) IFS= read -r -p 'IP or domain (blank uses global target): ' ping_target ;;
+            2|3)
+                IFS= read -r -p 'Whole number from 1 to 3600: ' value
+                if [[ "$value" =~ ^[1-9][0-9]{0,3}$ ]] && ((value <= 3600)); then
+                    if [[ "$choice" == 2 ]]; then ping_count="$value"; else ping_timeout="$value"; fi
+                else msg_warn 'Enter a whole number from 1 to 3600.'; pause; fi ;;
+            4) ping_numeric=$(toggle_bool "$ping_numeric") ;;
+            5) ping_target="" ;;
+            6) require_program ping && run_command_logged recon ping || pause ;;
+            7) view_man_page ping ;;
+            *) msg_warn 'Invalid option'; pause ;;
+        esac
+    done
+}
+
 # -------------------------
 # Software database
 # -------------------------
 # Tools that have menus/documentation support. Some are also available through
 # Tool_Box's apt-based installer; the rest remain menu/documentation-only.
 software_keys=(
+    ping
     nmap gobuster curl wget nc dig whois traceroute jq openssl
     tcpdump tshark ffuf feroxbuster whatweb nikto smbclient
     enum4linux-ng arp-scan metasploit ipcmd ssh snmpwalk
@@ -97,7 +495,7 @@ software_keys=(
 # Software Tool_Box can install automatically on apt-based systems.
 # Each major section keeps a focused list so it can expose its own
 # software-management page without duplicating installer logic.
-recon_software_keys=(nmap dig whois traceroute)
+recon_software_keys=(nmap dig whois traceroute ping)
 web_software_keys=(gobuster ffuf feroxbuster whatweb nikto curl openssl)
 network_software_keys=(dig whois traceroute arp-scan nc ipcmd)
 smb_software_keys=(enum4linux-ng smbclient nmap)
@@ -107,6 +505,7 @@ profile_software_keys=(nmap whatweb curl gobuster smbclient)
 service_software_keys=(nmap ssh nc snmpwalk ldapsearch showmount rpcinfo)
 vulnerability_software_keys=(nmap)
 installable_software_keys=(
+    ping
     nmap dig whois traceroute
     gobuster ffuf feroxbuster whatweb nikto curl openssl
     arp-scan nc ipcmd
@@ -117,6 +516,12 @@ installable_software_keys=(
 )
 
 declare -A software_display software_command software_package software_status software_man software_repo_status software_description
+
+software_display[ping]="Ping"
+software_command[ping]="ping"
+software_package[ping]="iputils-ping"
+software_man[ping]="ping"
+software_description[ping]="Send ICMP echo requests to check host reachability and round-trip time."
 
 software_display[nmap]="Nmap"
 software_command[nmap]="nmap"
@@ -386,7 +791,7 @@ menu_prompt() {
     echo ""
     menu_footer
     printf '%b' "${C_CYAN}${C_BOLD} # ${C_RESET}"
-    IFS= read -r input
+    IFS= read -r input || exit 0
 
     case "$input" in
         m|M) restart_main_menu ;;
@@ -512,7 +917,7 @@ build_output_file() {
 
 show_command() {
     printf '%b' "${C_DIM}Command:${C_RESET} ${C_MAGENTA}"
-    printf '%q ' "${command[@]}"
+    printf '%s' "$(format_command_string)"
     printf '%b\n' "${C_RESET}"
 }
 
@@ -552,6 +957,11 @@ require_program() {
 format_command_string() {
     local rendered i redact_next=false
     local -a safe_command=()
+    if [[ "${command_display[0]+x}" == x ]]; then
+        printf -v rendered '%q ' "${command_display[@]}"
+        printf '%s' "${rendered% }"
+        return
+    fi
 
     # Keep history useful without persisting supplied SNMP community strings.
     for ((i=0; i<${#command[@]}; i++)); do
@@ -677,7 +1087,7 @@ run_command_logged() {
     echo "----------------------------"
     printf '%b\n' "${C_BOLD}Ready to run:${C_RESET}"
     printf '%b' "  ${C_MAGENTA}"
-    printf '%q ' "${command[@]}"
+    printf '%s' "$(format_command_string)"
     printf '%b\n' "${C_RESET}"
     [[ "$command_requires_privilege" == true ]] && printf '%b\n' "Privilege: ${C_YELLOW}elevated${C_RESET}"
     [[ "$dry_run_mode" == true ]] && printf '%b\n' "Mode: $(status_text DRY-RUN) (no execution)"
@@ -1825,6 +2235,10 @@ set_data_menu() {
         echo " 2) Set Subnet"
         echo " 3) Set Port(s)"
         echo " 4) Set Output Folder"
+        echo " 5) Domain: $toolbox_domain"
+        echo " 6) URL: $toolbox_url"
+        echo " 7) Username: $toolbox_username"
+        echo " 8) Password: ${toolbox_password:+[set]}"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -1834,6 +2248,10 @@ set_data_menu() {
             2) set_subnet ;;
             3) set_ports ;;
             4) set_output_folder ;;
+            5) IFS= read -r -p "Domain: " toolbox_domain ;;
+            6) IFS= read -r -p "URL: " toolbox_url ;;
+            7) IFS= read -r -p "Username: " toolbox_username ;;
+            8) IFS= read -r -s -p "Password (blank clears): " toolbox_password; echo ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2463,6 +2881,7 @@ web_enumeration_menu() {
         echo " 7) TLS Certificate (OpenSSL)"
         echo " 8) Test HTTP/HTTPS"
         echo " 9) Web Enumeration Software"
+        external_render "web enumeration"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -2477,7 +2896,7 @@ web_enumeration_menu() {
             8) test_http_menu ;;
             9) web_enumeration_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "web enumeration" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -3027,6 +3446,7 @@ workspace_menu() {
         echo "10) Archive Current Workspace"
         echo "11) Unload Workspace"
         echo "12) Delete Current Workspace"
+        external_render "workspace / project"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -3044,7 +3464,7 @@ workspace_menu() {
             11) unload_workspace ;;
             12) delete_workspace ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "workspace / project" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -3165,6 +3585,8 @@ reconnaissance_menu() {
         echo " 6) WHOIS"
         echo " 7) Traceroute"
         echo " 8) Reconnaissance Software"
+        echo " 9) Ping"
+        external_render "reconnaissance"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -3177,8 +3599,9 @@ reconnaissance_menu() {
             6) whois_menu ;;
             7) traceroute_menu ;;
             8) recon_software_menu ;;
+            9) ping_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "reconnaissance" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -3448,6 +3871,7 @@ network_dns_menu() {
         echo " 7) Local Interfaces"
         echo " 8) Routing Table"
         echo " 9) Network / DNS Software"
+        external_render "network / dns"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -3462,7 +3886,7 @@ network_dns_menu() {
             8) routing_table_page ;;
             9) network_dns_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "network / dns" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -3644,6 +4068,7 @@ smb_windows_menu() {
         echo " 4) Nmap SMB Information Scripts"
         echo " 5) NetBIOS Information"
         echo " 6) SMB / Windows Software"
+        external_render "smb / windows"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -3655,7 +4080,7 @@ smb_windows_menu() {
             5) netbios_info_menu ;;
             6) smb_windows_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "smb / windows" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4010,6 +4435,7 @@ service_enumeration_menu() {
         echo " 7) RPC"
         echo " 8) Database Services"
         echo " 9) Service Enumeration Software"
+        external_render "service enumeration"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4024,7 +4450,7 @@ service_enumeration_menu() {
             8) database_services_menu ;;
             9) service_enumeration_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "service enumeration" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4082,6 +4508,7 @@ vulnerability_assessment_menu() {
         echo " 6) Service Detection + Default Scripts"
         echo " 7) Vulnerability Assessment Software"
         echo " 8) View Nmap Man Page / Help"
+        external_render "vulnerability assessment"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4113,7 +4540,7 @@ vulnerability_assessment_menu() {
             7) vulnerability_software_menu ;;
             8) view_man_page nmap ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "vulnerability assessment" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4309,6 +4736,7 @@ traffic_analysis_menu() {
         echo " 5) Capture by Port"
         echo " 6) TShark Analysis"
         echo " 7) Traffic Analysis Software"
+        external_render "traffic analysis"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4321,7 +4749,7 @@ traffic_analysis_menu() {
             6) tshark_analysis_menu ;;
             7) traffic_analysis_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "traffic analysis" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4731,6 +5159,7 @@ results_menu() {
         echo "10) Delete a Result File"
         echo "11) View Tool_Box Command History"
         echo "12) Search Tool_Box Command History"
+        external_render "results / reporting"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4753,7 +5182,7 @@ results_menu() {
             11) command_history_menu ;;
             12) search_command_history ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "results / reporting" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4802,6 +5231,7 @@ utilities_menu() {
         echo " 4) JQ"
         echo " 5) OpenSSL"
         echo " 6) Utilities Software"
+        external_render "command-line utilities"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4813,7 +5243,7 @@ utilities_menu() {
             5) openssl_utility_menu ;;
             6) utilities_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "command-line utilities" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4912,6 +5342,7 @@ network_info_menu() {
         echo " 1) Local Interfaces / Routes / DNS"
         echo " 2) VPN / Tunnel Status"
         echo " 3) Public IP (external request)"
+        external_render "network information"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4920,7 +5351,7 @@ network_info_menu() {
             2) vpn_status_page ;;
             3) public_ip_page ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "network information" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -4995,6 +5426,7 @@ text_encoding_menu() {
         echo " 6) URL Decode"
         echo " 7) SHA-256 Text Hash"
         echo " 8) Hash Identification Helper"
+        external_render "text / encoding tools"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -5070,7 +5502,7 @@ text_encoding_menu() {
                 ;;
             8) hash_identifier_menu ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "text / encoding tools" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -5305,6 +5737,7 @@ scan_profiles_menu() {
         echo " 5) Linux Server"
         echo " 6) Custom (Open Nmap Builder)"
         echo " 7) Scan Profiles Software"
+        external_render "scan profiles"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -5317,7 +5750,7 @@ scan_profiles_menu() {
             6) set_nmap ;;
             7) scan_profiles_software_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "scan profiles" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -5492,6 +5925,7 @@ load_configuration() {
         esac
     done < "$config_file"
 
+    external_restore || pause
     echo "Configuration loaded from: $config_file"
     pause
 }
@@ -5529,6 +5963,8 @@ settings_menu() {
         echo " 9) Load Configuration"
         echo "10) Reset Defaults"
         echo "11) Settings Profiles"
+        echo "12) External Modules"
+        external_render "settings"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -5550,8 +5986,9 @@ settings_menu() {
             9) load_configuration ;;
             10) reset_defaults ;;
             11) settings_profiles_menu ;;
+            12) external_management_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "settings" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -5842,13 +6279,14 @@ exploit_menu() {
     while true; do
         header "Tool_Box - Exploit"
         echo " 1) Metasploit"
+        external_render "exploit"
         echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
             1) metasploit_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "exploit" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6365,6 +6803,7 @@ useful_links_shell_menu() {
         header "Tool_Box - Useful Links - Shell / Session Tools"
         echo " 1) Penelope"
         echo " 2) Reverse Shell Generator"
+        external_render "shell / session tools"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6372,7 +6811,7 @@ useful_links_shell_menu() {
             1) useful_link_page "Penelope" "https://github.com/brightio/penelope" "Shell handler and session-management project useful in authorized lab environments." ;;
             2) useful_link_page "Reverse Shell Generator" "https://www.revshells.com/" "Reference and generator for shell command formats used in authorized labs." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "shell / session tools" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6383,6 +6822,7 @@ useful_links_data_menu() {
         header "Tool_Box - Useful Links - Data / Encoding / Analysis"
         echo " 1) CyberChef"
         echo " 2) VirusTotal"
+        external_render "data / encoding / analysis"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6390,7 +6830,7 @@ useful_links_data_menu() {
             1) useful_link_page "CyberChef" "https://gchq.github.io/CyberChef/" "Browser-based data transformation toolkit for encoding, decoding, hashing, byte manipulation, and format conversion." ;;
             2) useful_link_page "VirusTotal" "https://www.virustotal.com/" "File, URL, domain, and IP reputation and analysis service. Do not upload sensitive or private files." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "data / encoding / analysis" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6402,6 +6842,7 @@ useful_links_privilege_menu() {
         echo " 1) GTFOBins"
         echo " 2) LOLBAS"
         echo " 3) HackTricks"
+        external_render "privilege references"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6410,7 +6851,7 @@ useful_links_privilege_menu() {
             2) useful_link_page "LOLBAS" "https://lolbas-project.github.io/" "Living Off The Land Binaries, Scripts and Libraries reference for Windows." ;;
             3) useful_link_page "HackTricks" "https://book.hacktricks.wiki/" "Large security reference covering enumeration, common services, web technologies, and lab methodology." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "privilege references" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6422,6 +6863,7 @@ useful_links_web_menu() {
         echo " 1) PortSwigger Web Security Academy"
         echo " 2) OWASP Cheat Sheet Series"
         echo " 3) OWASP Web Security Testing Guide"
+        external_render "web security"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6430,7 +6872,7 @@ useful_links_web_menu() {
             2) useful_link_page "OWASP Cheat Sheet Series" "https://cheatsheetseries.owasp.org/" "Practical application-security guidance and defensive reference material." ;;
             3) useful_link_page "OWASP Web Security Testing Guide" "https://owasp.org/www-project-web-security-testing-guide/" "Structured web application security testing methodology." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "web security" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6446,6 +6888,7 @@ useful_links_recon_menu() {
         echo " 5) MITRE ATT&CK"
         echo " 6) CVE.org"
         echo " 7) NIST NVD"
+        external_render "recon / vulnerabilities"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6458,7 +6901,7 @@ useful_links_recon_menu() {
             6) useful_link_page "CVE.org" "https://www.cve.org/" "Official CVE program site and vulnerability identifier reference." ;;
             7) useful_link_page "NIST NVD" "https://nvd.nist.gov/" "NIST vulnerability database with CVE enrichment and scoring information." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "recon / vulnerabilities" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6470,6 +6913,7 @@ useful_links_payloads_menu() {
         echo " 1) PayloadsAllTheThings"
         echo " 2) SecLists"
         echo " 3) PacketLife Cheat Sheets"
+        external_render "payloads / wordlists / cheatsheets"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6478,7 +6922,7 @@ useful_links_payloads_menu() {
             2) useful_link_page "SecLists" "https://github.com/danielmiessler/SecLists" "Collection of wordlists used for security assessments, discovery, usernames, passwords, and fuzzing." ;;
             3) useful_link_page "PacketLife Cheat Sheets" "https://packetlife.net/library/cheat-sheets/" "Networking protocol and command cheat sheets." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "payloads / wordlists / cheatsheets" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6489,6 +6933,7 @@ useful_links_training_menu() {
         header "Tool_Box - Useful Links - Training"
         echo " 1) TryHackMe"
         echo " 2) PortSwigger Web Security Academy"
+        external_render "training"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6496,7 +6941,7 @@ useful_links_training_menu() {
             1) useful_link_page "TryHackMe" "https://tryhackme.com/" "Hands-on cybersecurity training platform and lab environment." ;;
             2) useful_link_page "PortSwigger Web Security Academy" "https://portswigger.net/web-security" "Free web security learning material and interactive labs." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "training" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6580,6 +7025,7 @@ useful_links_menu() {
         echo " 6) Payloads / Wordlists / Cheat Sheets"
         echo " 7) Training"
         echo " 8) Custom Bookmarks"
+        external_render "useful links"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6593,7 +7039,7 @@ useful_links_menu() {
             7) useful_links_training_menu ;;
             8) custom_bookmarks_menu ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "useful links" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6610,6 +7056,7 @@ pass_hash_cracking_menu() {
         echo ""
         echo " 1) Hash Identification Helper"
         echo " 2) Text / Encoding Tools"
+        external_render "pass/hash cracking"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6617,7 +7064,7 @@ pass_hash_cracking_menu() {
             1) hash_identifier_menu ;;
             2) text_encoding_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "pass/hash cracking" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6637,6 +7084,7 @@ target_scanning_menu() {
         echo " 3) Scan Profiles"
         echo " 4) Import Nmap Results"
         echo " 5) Service-Aware Recommendations"
+        external_render "target & scanning"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6647,7 +7095,7 @@ target_scanning_menu() {
             4) import_nmap_results ;;
             5) service_recommendations_page ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "target & scanning" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6664,6 +7112,7 @@ recon_enumeration_hub_menu() {
         echo " 4) SMB / Windows"
         echo " 5) Service Enumeration"
         echo " 6) Vulnerability Assessment"
+        external_render "reconnaissance & enumeration"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6675,7 +7124,7 @@ recon_enumeration_hub_menu() {
             5) service_enumeration_menu ;;
             6) vulnerability_assessment_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "reconnaissance & enumeration" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6688,6 +7137,7 @@ access_exploitation_menu() {
         echo ""
         echo " 1) Pass / Hash Cracking"
         echo " 2) Exploit"
+        external_render "access & exploitation"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6695,7 +7145,7 @@ access_exploitation_menu() {
             1) pass_hash_cracking_menu ;;
             2) exploit_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "access & exploitation" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6708,6 +7158,7 @@ analysis_reporting_menu() {
         echo ""
         echo " 1) Traffic Analysis"
         echo " 2) Results / Reporting"
+        external_render "analysis & reporting"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6715,7 +7166,7 @@ analysis_reporting_menu() {
             1) traffic_analysis_menu ;;
             2) results_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "analysis & reporting" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6732,6 +7183,7 @@ utilities_resources_menu() {
         echo " 4) Port Reference"
         echo " 5) Useful Links"
         echo " 6) Quick Help / Workflow Guide"
+        external_render "utilities & resources"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -6743,7 +7195,7 @@ utilities_resources_menu() {
             5) useful_links_menu ;;
             6) toolbox_quick_help ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "utilities & resources" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -6763,6 +7215,9 @@ restart_main_menu() {
         TOOLBOX_NAV_RESTART=true \
         TOOLBOX_ELEVATED_SESSION="$toolbox_elevated_session" \
         TOOLBOX_PARENT_USER="$toolbox_parent_user" \
+        TOOLBOX_SESSION_DOMAIN="$toolbox_domain" \
+        TOOLBOX_SESSION_URL="$toolbox_url" \
+        TOOLBOX_SESSION_USERNAME="$toolbox_username" \
         TOOLBOX_SESSION_IP="$ip" \
         TOOLBOX_SESSION_SUBNET="$subnet" \
         TOOLBOX_SESSION_PORT="$port" \
@@ -6800,6 +7255,9 @@ apply_session_state() {
     [[ "${TOOLBOX_SESSION_WORKSPACE_DIR+x}" == x ]] && workspace_dir="$TOOLBOX_SESSION_WORKSPACE_DIR"
     [[ "${TOOLBOX_SESSION_WORKSPACE_LOADED+x}" == x ]] && workspace_loaded="$TOOLBOX_SESSION_WORKSPACE_LOADED"
 
+    toolbox_domain="${TOOLBOX_SESSION_DOMAIN:-}"
+    toolbox_url="${TOOLBOX_SESSION_URL:-}"
+    toolbox_username="${TOOLBOX_SESSION_USERNAME:-}"
     refresh_colors
 }
 
@@ -6851,6 +7309,9 @@ start_root_toolbox_session() {
     sudo env \
         TOOLBOX_ELEVATED_SESSION=true \
         TOOLBOX_PARENT_USER="$current_user" \
+        TOOLBOX_SESSION_DOMAIN="$toolbox_domain" \
+        TOOLBOX_SESSION_URL="$toolbox_url" \
+        TOOLBOX_SESSION_USERNAME="$toolbox_username" \
         TOOLBOX_SESSION_IP="$ip" \
         TOOLBOX_SESSION_SUBNET="$subnet" \
         TOOLBOX_SESSION_PORT="$port" \
@@ -7149,6 +7610,7 @@ documentation_download_menu() {
         echo " 3) Download Both Guides"
         echo " 4) Set Download Location"
         echo " 5) Open Repository"
+        external_render "documentation"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -7159,7 +7621,7 @@ documentation_download_menu() {
             4) set_documentation_download_dir ;;
             5) useful_link_page "Tool_Box Repository" "$toolbox_repo_url" "Source repository and documentation for Tool_Box." ;;
             0) return ;;
-            *) msg_error "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "documentation" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -7210,6 +7672,7 @@ system_configuration_menu() {
         echo " 4) Privilege / User Session"
         echo " 5) About / Version / Update Check"
         echo " 6) Documentation / Download Guides"
+        external_render "system & configuration"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -7221,7 +7684,7 @@ system_configuration_menu() {
             5) about_toolbox_menu ;;
             6) documentation_download_menu ;;
             0) return ;;
-            *) echo "Invalid option."; pause ;;
+            *) external_dispatch "$choice" "system & configuration" || { echo "Invalid option."; pause; } ;;
         esac
     done
 }
@@ -7257,6 +7720,8 @@ main_menu() {
         apply_session_state
     fi
 
+    external_restore || pause
+
     while true; do
         header "Tool_Box"
         printf '%b\n' "${C_BOLD}Main Menu${C_RESET}"
@@ -7291,5 +7756,7 @@ main_menu() {
 # -------------------------
 # Start Program
 # -------------------------
-trap 'printf "%b\n" "$C_RESET"; exit 130' INT TERM
-main_menu
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    trap 'printf "%b\n" "$C_RESET"; exit 130' INT TERM
+    main_menu
+fi
