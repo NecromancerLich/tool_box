@@ -8,7 +8,7 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.32"
+ver="0.33"
 ip="127.0.0.1"
 subnet=32
 port="4444"
@@ -363,11 +363,19 @@ external_module_menu() {
         header "Tool_Box - ${external_name[$file]}"
         printf 'Description: %s\n' "${external_description[$file]}"
         template="${external_command[$file]}"
+        if ((${#labels[@]} > 0)); then
+            echo ""
+            menu_section "Options"
+        fi
         for ((i=0; i<${#labels[@]}; i++)); do
             printf ' %d) %s: %s\n' "$((i+1))" "${labels[i]}" "$(toggle_status "${enabled[i]}")"
             [[ "${enabled[i]}" == true ]] && template+=" ${fragments[i]}"
         done
+        echo ""
+        menu_section "Command Preview"
         external_build_command "$template" preview && show_command
+        echo ""
+        menu_section "Actions"
         echo ' R) Run'
         echo ' 0) Back'
         menu_prompt choice || return
@@ -450,17 +458,25 @@ external_management_menu() {
 ping_menu() {
     local choice ping_target="" ping_count=4 ping_timeout=2 ping_numeric=false value
     while true; do
-        header 'Tool_Box - Ping'
-        show_software_description ping
         command=(ping -c "$ping_count" -W "$ping_timeout")
         [[ "$ping_numeric" == true ]] && command+=(-n)
         command+=(-- "${ping_target:-$ip}")
+        header 'Tool_Box - Ping'
+        show_software_description ping
+        echo ""
+        menu_section "Command Preview"
+        show_command
+        echo ""
+        menu_section "Options"
         printf ' 1) IP / Domain: %s\n 2) Requests: %s\n 3) Reply timeout (seconds): %s\n 4) Numeric output: %s\n' "${ping_target:-$ip}" "$ping_count" "$ping_timeout" "$(toggle_status "$ping_numeric")"
         echo ' 5) Reset to global target'
-        echo ' 6) Run Ping'
-        echo ' 7) Help / Man Page'
+        echo ""
+        menu_section "Actions"
+        echo ' R) Run Ping'
+        echo ""
+        menu_section "Documentation"
+        echo ' D) Help / Man Page'
         echo ' 0) Back'
-        show_command
         menu_prompt choice || return
         case "$choice" in
             0) return ;;
@@ -472,8 +488,8 @@ ping_menu() {
                 else msg_warn 'Enter a whole number from 1 to 3600.'; pause; fi ;;
             4) ping_numeric=$(toggle_bool "$ping_numeric") ;;
             5) ping_target="" ;;
-            6) require_program ping && run_command_logged recon ping || pause ;;
-            7) view_man_page ping ;;
+            r|R) require_program ping && run_command_logged recon ping || pause ;;
+            d|D) view_man_page ping ;;
             *) msg_warn 'Invalid option'; pause ;;
         esac
     done
@@ -757,6 +773,11 @@ show_software_description() {
 show_module_description() {
     local description="$1"
     printf '%b\n' "${C_DIM}Description:${C_RESET} $description"
+}
+
+menu_section() {
+    local title="$1"
+    printf '%b\n' "${C_DIM}-------------------- ${C_BOLD}${title}${C_RESET}${C_DIM} --------------------${C_RESET}"
 }
 
 msg_success() {
@@ -1827,11 +1848,14 @@ repository_manager_menu() {
         detect_distribution
         echo "OS: $distro_pretty"
         echo ""
+        menu_section "Options"
         echo " 1) Show OS / Active Repositories"
         echo " 2) Enable Standard Repositories for This OS"
         echo " 3) Update Package Lists"
         echo " 4) Check Tool Package Availability"
-        echo " 5) Run APT Diagnostics"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run APT Diagnostics"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -1841,7 +1865,7 @@ repository_manager_menu() {
             2) enable_standard_repositories ;;
             3) update_package_lists ;;
             4) show_package_availability ;;
-            5) apt_repository_diagnostics ;;
+            r|R) apt_repository_diagnostics ;;
             0) return ;;
             *) msg_error "Invalid option."; pause ;;
         esac
@@ -2414,10 +2438,11 @@ set_nmap() {
         header "Tool_Box - Nmap"
         echo "Status: $(software_status_text nmap)"
         show_software_description nmap
-        echo "----------------------------"
-        show_command
-        echo "----------------------------"
         echo ""
+        menu_section "Command Preview"
+        show_command
+        echo ""
+        menu_section "Options"
         echo "Scan Type: ${nmap_scan_type:-Default}"
         echo " 1) SYN Scan       [-sS]"
         echo " 2) Connect Scan   [-sT]"
@@ -2432,8 +2457,12 @@ set_nmap() {
         echo "10) Custom Options          : $nmap_custom"
         echo "11) Auto-Save Output (Global): $(toggle_status "$auto_save_output")"
         [[ "$auto_save_output" == true ]] && echo "    Output Directory         : $output_folder"
-        echo "12) Run Command"
-        echo "13) View Nmap Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Command"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -2450,12 +2479,12 @@ set_nmap() {
             9) nmap_aggressive=$(toggle_bool "$nmap_aggressive") ;;
             10) read -r -p "Enter custom Nmap options: " nmap_custom ;;
             11) auto_save_output=$(toggle_bool "$auto_save_output") ;;
-            12)
+            r|R)
                 require_program nmap || { pause; continue; }
                 nmap_render
                 run_command_logged "nmap" "nmap"
                 ;;
-            13) view_man_page nmap ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause; continue ;;
         esac
@@ -2513,10 +2542,11 @@ set_gobuster() {
         echo "Mode:     $gobuster_mode"
         echo "Wordlist: $gobuster_wordlist"
         echo "Port:     $gobuster_port"
-        echo "----------------------------"
-        show_command
-        echo "----------------------------"
         echo ""
+        menu_section "Command Preview"
+        show_command
+        echo ""
+        menu_section "Options"
         echo " 1) HTTPS              : $(toggle_status "$gobuster_https")"
         echo " 2) Follow Redirects   : $(toggle_status "$gobuster_follow")"
         echo " 3) Expanded URLs      : $(toggle_status "$gobuster_expanded")"
@@ -2529,8 +2559,12 @@ set_gobuster() {
         echo "10) Port               : $gobuster_port"
         echo "11) Auto-Save Output (Global): $(toggle_status "$auto_save_output")"
         [[ "$auto_save_output" == true ]] && echo "    Output Directory   : $output_folder"
-        echo "12) Run Command"
-        echo "13) View Gobuster Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Command"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Gobuster Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -2550,12 +2584,12 @@ set_gobuster() {
                 validate_port "$gobuster_port" || { echo "Invalid port."; pause; gobuster_port="$(get_first_port)"; }
                 ;;
             11) auto_save_output=$(toggle_bool "$auto_save_output") ;;
-            12)
+            r|R)
                 require_program gobuster || { pause; continue; }
                 gobuster_render
                 run_command_logged "web" "gobuster"
                 ;;
-            13) view_man_page gobuster ;;
+            d|D) view_man_page gobuster ;;
             0) return ;;
             *) echo "Invalid option."; pause; continue ;;
         esac
@@ -2607,16 +2641,23 @@ ffuf_menu() {
         header "Tool_Box - FFUF"
         echo "FFUF Status: $(software_status_text ffuf)"
         show_software_description ffuf
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Protocol      : $protocol"
         echo " 2) Port          : $web_port"
         echo " 3) Wordlist      : $wordlist"
         echo " 4) Threads       : $threads"
         echo " 5) Extensions    : $extensions"
         echo " 6) Custom Options: $custom"
-        echo " 7) Run Command"
-        echo " 8) View FFUF Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Command"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View FFUF Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -2628,8 +2669,8 @@ ffuf_menu() {
             4) read -r -p "Enter threads: " threads ;;
             5) read -r -p "Enter extensions (example .php,.html): " extensions ;;
             6) read -r -p "Enter custom FFUF options: " custom ;;
-            7) require_program ffuf && run_command_logged "web" "ffuf" || pause ;;
-            8) view_man_page ffuf ;;
+            r|R) require_program ffuf && run_command_logged "web" "ffuf" || pause ;;
+            d|D) view_man_page ffuf ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2658,16 +2699,23 @@ feroxbuster_menu() {
         header "Tool_Box - Feroxbuster"
         echo "Feroxbuster Status: $(software_status_text feroxbuster)"
         show_software_description feroxbuster
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Protocol      : $protocol"
         echo " 2) Port          : $web_port"
         echo " 3) Wordlist      : $wordlist"
         echo " 4) Threads       : $threads"
         echo " 5) Extensions    : $extensions"
         echo " 6) Custom Options: $custom"
-        echo " 7) Run Command"
-        echo " 8) View Feroxbuster Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Command"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Feroxbuster Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -2679,8 +2727,8 @@ feroxbuster_menu() {
             4) read -r -p "Enter threads: " threads ;;
             5) read -r -p "Enter extensions (example php html): " extensions ;;
             6) read -r -p "Enter custom Feroxbuster options: " custom ;;
-            7) require_program feroxbuster && run_command_logged "web" "feroxbuster" || pause ;;
-            8) view_man_page feroxbuster ;;
+            r|R) require_program feroxbuster && run_command_logged "web" "feroxbuster" || pause ;;
+            d|D) view_man_page feroxbuster ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2700,19 +2748,26 @@ whatweb_menu() {
         header "Tool_Box - WhatWeb"
         echo "WhatWeb Status: $(software_status_text whatweb)"
         show_software_description whatweb
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Protocol: $protocol"
         echo " 2) Port    : $web_port"
-        echo " 3) Run WhatWeb"
-        echo " 4) View WhatWeb Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run WhatWeb"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View WhatWeb Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
             2) read -r -p "Enter port: " web_port; validate_port "$web_port" || web_port="$(get_first_port)" ;;
-            3) require_program whatweb && run_command_logged "web" "whatweb" || pause ;;
-            4) view_man_page whatweb ;;
+            r|R) require_program whatweb && run_command_logged "web" "whatweb" || pause ;;
+            d|D) view_man_page whatweb ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2729,19 +2784,26 @@ nikto_menu() {
         header "Tool_Box - Nikto"
         echo "Nikto Status: $(software_status_text nikto)"
         show_software_description nikto
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Protocol: $protocol"
         echo " 2) Port    : $web_port"
-        echo " 3) Run Nikto"
-        echo " 4) View Nikto Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Nikto"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nikto Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
             2) read -r -p "Enter port: " web_port; validate_port "$web_port" || web_port="$(get_first_port)" ;;
-            3) require_program nikto && run_command_logged "web" "nikto" || pause ;;
-            4) view_man_page nikto ;;
+            r|R) require_program nikto && run_command_logged "web" "nikto" || pause ;;
+            d|D) view_man_page nikto ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2758,19 +2820,26 @@ http_headers_menu() {
         header "Tool_Box - HTTP Headers (Curl)"
         echo "Curl Status: $(software_status_text curl)"
         show_software_description curl
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Protocol: $protocol"
         echo " 2) Port    : $web_port"
-        echo " 3) Run Header Request"
-        echo " 4) View Curl Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Header Request"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Curl Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
             2) read -r -p "Enter port: " web_port; validate_port "$web_port" || web_port="$(get_first_port)" ;;
-            3) require_program curl && run_command_logged "web" "http-headers" || pause ;;
-            4) view_man_page curl ;;
+            r|R) require_program curl && run_command_logged "web" "http-headers" || pause ;;
+            d|D) view_man_page curl ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2788,19 +2857,26 @@ tls_certificate_menu() {
         header "Tool_Box - TLS Certificate (OpenSSL)"
         echo "OpenSSL Status: $(software_status_text openssl)"
         show_software_description openssl
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Port       : $web_port"
         echo " 2) Server Name: $server_name"
-        echo " 3) Run TLS Inspection"
-        echo " 4) View OpenSSL Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run TLS Inspection"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View OpenSSL Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter TLS port: " web_port; validate_port "$web_port" || web_port="$(get_first_port)" ;;
             2) read -r -p "Enter SNI/server name: " server_name ;;
-            3) require_program openssl && run_command_logged_stdin_null "web" "tls-certificate" || pause ;;
-            4) view_man_page openssl ;;
+            r|R) require_program openssl && run_command_logged_stdin_null "web" "tls-certificate" || pause ;;
+            d|D) view_man_page openssl ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -2817,19 +2893,26 @@ test_http_menu() {
         header "Tool_Box - Test HTTP/HTTPS"
         echo "Curl Status: $(software_status_text curl)"
         show_software_description curl
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Protocol: $protocol"
         echo " 2) Port    : $web_port"
-        echo " 3) Run Test"
-        echo " 4) View Curl Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Test"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Curl Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
             2) read -r -p "Enter port: " web_port; validate_port "$web_port" || web_port="$(get_first_port)" ;;
-            3) require_program curl && run_command_logged "web" "curl-test" || pause ;;
-            4) view_man_page curl ;;
+            r|R) require_program curl && run_command_logged "web" "curl-test" || pause ;;
+            d|D) view_man_page curl ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3480,15 +3563,20 @@ host_discovery_menu() {
         header "Tool_Box - Host Discovery"
         echo "Nmap Status: $(software_status_text nmap)"
         show_software_description nmap
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run Host Discovery"
-        echo " 2) View Nmap Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run Host Discovery"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program nmap && run_command_logged "recon" "host-discovery" || pause ;;
-            2) view_man_page nmap ;;
+            r|R) require_program nmap && run_command_logged "recon" "host-discovery" || pause ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3503,15 +3591,20 @@ port_discovery_menu() {
         header "Tool_Box - Port Discovery"
         echo "Nmap Status: $(software_status_text nmap)"
         show_software_description nmap
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run Port Discovery"
-        echo " 2) View Nmap Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run Port Discovery"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program nmap && run_command_logged "recon" "port-discovery" || pause ;;
-            2) view_man_page nmap ;;
+            r|R) require_program nmap && run_command_logged "recon" "port-discovery" || pause ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3526,15 +3619,20 @@ service_detection_menu() {
         header "Tool_Box - Service Detection"
         echo "Nmap Status: $(software_status_text nmap)"
         show_software_description nmap
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run Service Detection"
-        echo " 2) View Nmap Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run Service Detection"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program nmap && run_command_logged "recon" "service-detection" || pause ;;
-            2) view_man_page nmap ;;
+            r|R) require_program nmap && run_command_logged "recon" "service-detection" || pause ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3617,17 +3715,24 @@ dns_lookup_menu() {
         header "Tool_Box - DNS Lookup (Dig)"
         echo "Status: $(software_status_text dig)"
         show_software_description dig
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Query: $query"
-        echo " 2) Run DNS Lookup"
-        echo " 3) View Dig Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run DNS Lookup"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Dig Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter hostname or DNS name: " query ;;
-            2) require_program dig && run_command_logged "dns" "dig" || pause ;;
-            3) view_man_page dig ;;
+            r|R) require_program dig && run_command_logged "dns" "dig" || pause ;;
+            d|D) view_man_page dig ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3642,11 +3747,18 @@ reverse_dns_menu() {
         header "Tool_Box - Reverse DNS"
         echo "Dig Status: $(software_status_text dig)"
         show_software_description dig
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) IP Address: $query  [custom allowed]"
-        echo " 2) Run Reverse DNS"
-        echo " 3) View Dig Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Reverse DNS"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Dig Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
@@ -3654,8 +3766,8 @@ reverse_dns_menu() {
                 read -r -p "Enter IP address: " query
                 [[ -n "$query" ]] || query="$ip"
                 ;;
-            2) require_program dig && run_command_logged "dns" "reverse-dns" || pause ;;
-            3) view_man_page dig ;;
+            r|R) require_program dig && run_command_logged "dns" "reverse-dns" || pause ;;
+            d|D) view_man_page dig ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3670,12 +3782,19 @@ whois_menu() {
         header "Tool_Box - WHOIS"
         echo "Status: $(software_status_text whois)"
         show_software_description whois
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) IP / Domain: $query  [custom allowed]"
-        echo " 2) Run WHOIS"
-        echo " 3) Reset to Global Target ($ip)"
-        echo " 4) View WHOIS Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run WHOIS"
+        echo " 2) Reset to Global Target ($ip)"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View WHOIS Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
@@ -3683,9 +3802,9 @@ whois_menu() {
                 read -r -p "Enter IP or domain: " query
                 [[ -n "$query" ]] || query="$ip"
                 ;;
-            2) require_program whois && run_command_logged "recon" "whois" || pause ;;
-            3) query="$ip" ;;
-            4) view_man_page whois ;;
+            r|R) require_program whois && run_command_logged "recon" "whois" || pause ;;
+            2) query="$ip" ;;
+            d|D) view_man_page whois ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3700,12 +3819,19 @@ traceroute_menu() {
         header "Tool_Box - Traceroute"
         echo "Status: $(software_status_text traceroute)"
         show_software_description traceroute
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Target: $target  [custom IP/domain allowed]"
-        echo " 2) Run Traceroute"
-        echo " 3) Reset to Global Target ($ip)"
-        echo " 4) View Traceroute Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run Traceroute"
+        echo " 2) Reset to Global Target ($ip)"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Traceroute Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
@@ -3713,9 +3839,9 @@ traceroute_menu() {
                 read -r -p "Enter IP or domain: " target
                 [[ -n "$target" ]] || target="$ip"
                 ;;
-            2) require_program traceroute && run_command_logged "network" "traceroute" || pause ;;
-            3) target="$ip" ;;
-            4) view_man_page traceroute ;;
+            r|R) require_program traceroute && run_command_logged "network" "traceroute" || pause ;;
+            2) target="$ip" ;;
+            d|D) view_man_page traceroute ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3730,15 +3856,20 @@ arp_scan_menu() {
         header "Tool_Box - ARP Scan"
         echo "arp-scan Status: $(software_status_text arp-scan)"
         show_software_description arp-scan
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run Local Network ARP Scan"
-        echo " 2) View arp-scan Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run Local Network ARP Scan"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View arp-scan Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program arp-scan && run_command_logged "network" "arp-scan" || pause ;;
-            2) view_man_page arp-scan ;;
+            r|R) require_program arp-scan && run_command_logged "network" "arp-scan" || pause ;;
+            d|D) view_man_page arp-scan ;;
             0) command_requires_privilege=false; return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3754,13 +3885,20 @@ netcat_test_menu() {
         header "Tool_Box - Netcat TCP Test"
         echo "Netcat Status: $(software_status_text nc)"
         show_software_description nc
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Target: $target  [custom IP/domain allowed]"
         echo " 2) Port: $nc_port"
-        echo " 3) Run TCP Connection Test"
-        echo " 4) Reset to Global Target ($ip)"
-        echo " 5) View Netcat Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run TCP Connection Test"
+        echo " 3) Reset to Global Target ($ip)"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Netcat Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
@@ -3769,9 +3907,9 @@ netcat_test_menu() {
                 [[ -n "$target" ]] || target="$ip"
                 ;;
             2) read -r -p "Enter port: " nc_port; validate_port "$nc_port" || nc_port="$(get_first_port)" ;;
-            3) require_program nc && run_command_logged "network" "netcat-test" || pause ;;
-            4) target="$ip" ;;
-            5) view_man_page nc ;;
+            r|R) require_program nc && run_command_logged "network" "netcat-test" || pause ;;
+            3) target="$ip" ;;
+            d|D) view_man_page nc ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3786,16 +3924,21 @@ local_interfaces_page() {
         header "Tool_Box - Local Interfaces (ip)"
         echo "ip Status: $(software_status_text ipcmd)"
         show_software_description ipcmd
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Show Local Interfaces"
-        echo " 2) View ip Man Page / Help"
+        menu_section "Actions"
+        echo " R) Show Local Interfaces"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View ip Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
-            1) require_program ipcmd && run_command_logged "network" "ip" || pause ;;
-            2) view_man_page ipcmd ;;
+            r|R) require_program ipcmd && run_command_logged "network" "ip" || pause ;;
+            d|D) view_man_page ipcmd ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3810,16 +3953,21 @@ routing_table_page() {
         header "Tool_Box - Routing Table (ip)"
         echo "ip Status: $(software_status_text ipcmd)"
         show_software_description ipcmd
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Show Routing Table"
-        echo " 2) View ip Man Page / Help"
+        menu_section "Actions"
+        echo " R) Show Routing Table"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View ip Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
-            1) require_program ipcmd && run_command_logged "network" "ip" || pause ;;
-            2) view_man_page ipcmd ;;
+            r|R) require_program ipcmd && run_command_logged "network" "ip" || pause ;;
+            d|D) view_man_page ipcmd ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3902,15 +4050,20 @@ enum4linux_menu() {
         header "Tool_Box - enum4linux-ng"
         echo "enum4linux-ng Status: $(software_status_text enum4linux-ng)"
         show_software_description enum4linux-ng
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run SMB Enumeration"
-        echo " 2) View enum4linux-ng Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run SMB Enumeration"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View enum4linux-ng Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program enum4linux-ng && run_command_logged "smb" "enum4linux-ng" || pause ;;
-            2) view_man_page enum4linux-ng ;;
+            r|R) require_program enum4linux-ng && run_command_logged "smb" "enum4linux-ng" || pause ;;
+            d|D) view_man_page enum4linux-ng ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3925,15 +4078,20 @@ smb_list_shares_menu() {
         header "Tool_Box - List SMB Shares"
         echo "SMBClient Status: $(software_status_text smbclient)"
         show_software_description smbclient
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) List Anonymous Shares"
-        echo " 2) View SMBClient Man Page / Help"
+        menu_section "Actions"
+        echo " R) List Anonymous Shares"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View SMBClient Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program smbclient && run_command_logged "smb" "smb-shares" || pause ;;
-            2) view_man_page smbclient ;;
+            r|R) require_program smbclient && run_command_logged "smb" "smb-shares" || pause ;;
+            d|D) view_man_page smbclient ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3958,22 +4116,29 @@ smb_client_menu() {
         header "Tool_Box - SMB Client"
         echo "SMBClient Status: $(software_status_text smbclient)"
         show_software_description smbclient
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Share   : ${share:-Not set}"
         echo " 2) Username: ${username:-Anonymous}"
-        echo " 3) Connect"
-        echo " 4) View SMBClient Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Connect"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View SMBClient Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter share name: " share ;;
             2) read -r -p "Enter username (blank for anonymous): " username ;;
-            3)
+            r|R)
                 [[ -n "$share" ]] || { echo "Set a share first."; pause; continue; }
                 require_program smbclient && run_command_interactive_logged "smb" "smbclient-session" || pause
                 ;;
-            4) view_man_page smbclient ;;
+            d|D) view_man_page smbclient ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -3988,15 +4153,20 @@ nmap_smb_scripts_menu() {
         header "Tool_Box - Nmap SMB Information"
         echo "Nmap Status: $(software_status_text nmap)"
         show_software_description nmap
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run SMB Information Scripts"
-        echo " 2) View Nmap Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run SMB Information Scripts"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program nmap && run_command_logged "smb" "nmap-smb-info" || pause ;;
-            2) view_man_page nmap ;;
+            r|R) require_program nmap && run_command_logged "smb" "nmap-smb-info" || pause ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4011,15 +4181,20 @@ netbios_info_menu() {
         header "Tool_Box - NetBIOS Information"
         echo "Nmap Status: $(software_status_text nmap)"
         show_software_description nmap
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) Run NetBIOS Information Scan"
-        echo " 2) View Nmap Man Page / Help"
+        menu_section "Actions"
+        echo " R) Run NetBIOS Information Scan"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program nmap && run_command_logged "smb" "netbios-info" || pause ;;
-            2) view_man_page nmap ;;
+            r|R) require_program nmap && run_command_logged "smb" "netbios-info" || pause ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4100,10 +4275,15 @@ ssh_enumeration_menu() {
         show_software_description nmap
         echo "Port          : $svc_port"
         echo ""
+        menu_section "Options"
         echo " 1) Set SSH Port"
+        echo ""
+        menu_section "Actions"
         echo " 2) Nmap SSH Version Detection"
         echo " 3) SSH Host-Key Scan"
         echo " 4) Nmap SSH Algorithms / Host Keys"
+        echo ""
+        menu_section "Documentation"
         echo " 5) View SSH Man Page / Help"
         echo " 6) View Nmap Man Page / Help"
         echo " 0) Back"
@@ -4150,9 +4330,14 @@ ftp_enumeration_menu() {
         echo "Netcat : $(software_status_text nc)"
         echo "Port   : $svc_port"
         echo ""
+        menu_section "Options"
         echo " 1) Set FTP Port"
+        echo ""
+        menu_section "Actions"
         echo " 2) FTP Banner / Version Detection"
         echo " 3) Check Anonymous FTP + System Info (Nmap)"
+        echo ""
+        menu_section "Documentation"
         echo " 4) View Nmap Man Page / Help"
         echo " 5) View Netcat Man Page / Help"
         echo " 0) Back"
@@ -4190,10 +4375,15 @@ smtp_enumeration_menu() {
         echo "Netcat : $(software_status_text nc)"
         echo "Port   : $svc_port"
         echo ""
+        menu_section "Options"
         echo " 1) Set SMTP Port"
+        echo ""
+        menu_section "Actions"
         echo " 2) Read SMTP Banner"
         echo " 3) Enumerate SMTP Commands (Nmap)"
         echo " 4) SMTP Version Detection"
+        echo ""
+        menu_section "Documentation"
         echo " 5) View Netcat Man Page / Help"
         echo " 6) View Nmap Man Page / Help"
         echo " 0) Back"
@@ -4235,11 +4425,16 @@ snmp_enumeration_menu() {
         echo "Community: $community"
         echo "OID      : $oid"
         echo ""
+        menu_section "Options"
         echo " 1) Set SNMP Port"
         echo " 2) Set Community String"
         echo " 3) Set OID"
-        echo " 4) Run SNMPWalk (supplied community only)"
-        echo " 5) View SNMPWalk Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run SNMPWalk (supplied community only)"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View SNMPWalk Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
@@ -4250,12 +4445,12 @@ snmp_enumeration_menu() {
                 ;;
             2) read -r -p "Enter community string: " community ;;
             3) read -r -p "Enter OID: " oid ;;
-            4)
+            r|R)
                 [[ -n "$community" && -n "$oid" ]] || { echo "Community and OID are required."; pause; continue; }
                 command=(snmpwalk -v2c -c "$community" "udp:$ip:$svc_port" "$oid")
                 require_program snmpwalk && run_command_logged "services" "snmpwalk" || pause
                 ;;
-            5) view_man_page snmpwalk ;;
+            d|D) view_man_page snmpwalk ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4272,10 +4467,15 @@ ldap_enumeration_menu() {
         echo "Port      : $svc_port"
         echo "Base DN   : ${base_dn:-Not set}"
         echo ""
+        menu_section "Options"
         echo " 1) Set LDAP Port"
         echo " 2) Set Base DN"
+        echo ""
+        menu_section "Actions"
         echo " 3) Query RootDSE"
         echo " 4) Query Selected Base DN (base object only)"
+        echo ""
+        menu_section "Documentation"
         echo " 5) View LDAPSearch Man Page / Help"
         echo " 0) Back"
         echo ""
@@ -4313,8 +4513,11 @@ nfs_enumeration_menu() {
         show_software_description showmount
         show_software_description rpcinfo
         echo ""
+        menu_section "Actions"
         echo " 1) List Exported NFS Shares"
         echo " 2) Show RPC Services"
+        echo ""
+        menu_section "Documentation"
         echo " 3) View Showmount Man Page / Help"
         echo " 4) View RPCInfo Man Page / Help"
         echo " 0) Back"
@@ -4345,7 +4548,10 @@ rpc_enumeration_menu() {
         echo "RPCInfo: $(software_status_text rpcinfo)"
         show_software_description rpcinfo
         echo ""
+        menu_section "Actions"
         echo " 1) List Registered RPC Programs"
+        echo ""
+        menu_section "Documentation"
         echo " 2) View RPCInfo Man Page / Help"
         echo " 0) Back"
         echo ""
@@ -4373,20 +4579,25 @@ database_services_menu() {
         echo ""
         echo "This page performs version/service detection only; it does not attempt authentication."
         echo ""
+        menu_section "Options"
         echo " 1) Set Database Ports"
-        echo " 2) Detect Common Database Services"
-        echo " 3) View Nmap Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Detect Common Database Services"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Nmap Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter comma-separated ports: " db_ports ;;
-            2)
+            r|R)
                 [[ "$db_ports" =~ ^[0-9,-]+$ ]] || { echo "Invalid port list."; pause; continue; }
                 command=(nmap -sV -p "$db_ports" "$ip")
                 require_program nmap && run_command_logged "services" "database-detection" || pause
                 ;;
-            3) view_man_page nmap ;;
+            d|D) view_man_page nmap ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4500,13 +4711,18 @@ vulnerability_assessment_menu() {
         echo ""
         echo "Low-impact assessment helpers for systems you are authorized to test."
         echo ""
+        menu_section "Options"
         echo " 1) Set Assessment Port"
+        echo ""
+        menu_section "Actions"
         echo " 2) Safe NSE Script Scan"
         echo " 3) TLS Cipher Assessment"
         echo " 4) HTTP Security Headers"
         echo " 5) SMB Security Configuration"
         echo " 6) Service Detection + Default Scripts"
         echo " 7) Vulnerability Assessment Software"
+        echo ""
+        menu_section "Documentation"
         echo " 8) View Nmap Man Page / Help"
         external_render "vulnerability assessment"
         echo " 0) Back"
@@ -4575,13 +4791,20 @@ tcpdump_capture_menu() {
         echo "Interface : $iface"
         echo "Packet max: $count"
         echo "PCAP      : $pcap_file"
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Interface"
         echo " 2) Packet Count"
         [[ "$capture_type" == port ]] && echo " 3) Port: $capture_port"
-        echo " 4) Start Capture"
-        echo " 5) View tcpdump Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Start Capture"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View tcpdump Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
 
@@ -4597,11 +4820,11 @@ tcpdump_capture_menu() {
                     pause
                 fi
                 ;;
-            4)
+            r|R)
                 require_program tcpdump || { pause; continue; }
                 run_command_logged "traffic" "tcpdump-capture"
                 ;;
-            5) view_man_page tcpdump ;;
+            d|D) view_man_page tcpdump ;;
             0) command_requires_privilege=false; return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4617,20 +4840,27 @@ tcpdump_read_menu() {
         echo "tcpdump Status: $(software_status_text tcpdump)"
         show_software_description tcpdump
         echo "PCAP: ${pcap_file:-Not set}"
+        echo ""
+        menu_section "Command Preview"
         [[ -n "$pcap_file" ]] && show_command
         echo ""
+        menu_section "Options"
         echo " 1) Set PCAP File"
-        echo " 2) Read PCAP"
-        echo " 3) View tcpdump Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Read PCAP"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View tcpdump Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter PCAP path: " pcap_file ;;
-            2)
+            r|R)
                 [[ -f "$pcap_file" ]] || { echo "PCAP file not found."; pause; continue; }
                 require_program tcpdump && run_command_logged "traffic" "tcpdump-read" || pause
                 ;;
-            3) view_man_page tcpdump ;;
+            d|D) view_man_page tcpdump ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4645,15 +4875,20 @@ tcpdump_interfaces_menu() {
         header "Tool_Box - Capture Interfaces"
         echo "tcpdump Status: $(software_status_text tcpdump)"
         show_software_description tcpdump
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
-        echo " 1) List Interfaces"
-        echo " 2) View tcpdump Man Page / Help"
+        menu_section "Actions"
+        echo " R) List Interfaces"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View tcpdump Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
-            1) require_program tcpdump && run_command_logged "traffic" "tcpdump" || pause ;;
-            2) view_man_page tcpdump ;;
+            r|R) require_program tcpdump && run_command_logged "traffic" "tcpdump" || pause ;;
+            d|D) view_man_page tcpdump ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4671,22 +4906,29 @@ tshark_analysis_menu() {
         show_software_description tshark
         echo "PCAP  : ${pcap_file:-Not set}"
         echo "Filter: ${display_filter:-None}"
+        echo ""
+        menu_section "Command Preview"
         [[ -n "$pcap_file" ]] && show_command
         echo ""
+        menu_section "Options"
         echo " 1) Set PCAP File"
         echo " 2) Set Display Filter"
-        echo " 3) Analyze"
-        echo " 4) View TShark Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Analyze"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View TShark Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter PCAP path: " pcap_file ;;
             2) read -r -p "Enter Wireshark display filter: " display_filter ;;
-            3)
+            r|R)
                 [[ -f "$pcap_file" ]] || { echo "PCAP file not found."; pause; continue; }
                 require_program tshark && run_command_logged "traffic" "tshark" || pause
                 ;;
-            4) view_man_page tshark ;;
+            d|D) view_man_page tshark ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4771,9 +5013,14 @@ curl_utility_menu() {
         echo "URL: $url"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Set URL"
+        echo ""
+        menu_section "Actions"
         echo " 2) GET URL"
         echo " 3) Show Headers Only"
+        echo ""
+        menu_section "Documentation"
         echo " 4) View Curl Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
@@ -4797,17 +5044,24 @@ wget_utility_menu() {
         echo "Software: $(software_status_text wget)"
         show_software_description wget
         echo "URL: $url"
+        echo ""
+        menu_section "Command Preview"
         show_command
         echo ""
+        menu_section "Options"
         echo " 1) Set URL"
-        echo " 2) Download"
-        echo " 3) View Wget Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Download"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Wget Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter URL: " url ;;
-            2) require_program wget && run_command_logged "utilities" "wget" || pause ;;
-            3) view_man_page wget ;;
+            r|R) require_program wget && run_command_logged "utilities" "wget" || pause ;;
+            d|D) view_man_page wget ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4823,20 +5077,27 @@ jq_utility_menu() {
         echo "Software: $(software_status_text jq)"
         show_software_description jq
         echo "JSON File: ${json_file:-Not set}"
+        echo ""
+        menu_section "Command Preview"
         [[ -n "$json_file" ]] && show_command
         echo ""
+        menu_section "Options"
         echo " 1) Set JSON File"
-        echo " 2) Pretty Print JSON"
-        echo " 3) View JQ Man Page / Help"
+        echo ""
+        menu_section "Actions"
+        echo " R) Pretty Print JSON"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View JQ Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter JSON file path: " json_file ;;
-            2)
+            r|R)
                 [[ -f "$json_file" ]] || { echo "File not found."; pause; continue; }
                 require_program jq && run_command_logged "utilities" "jq" || pause
                 ;;
-            3) view_man_page jq ;;
+            d|D) view_man_page jq ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
@@ -4851,9 +5112,12 @@ openssl_utility_menu() {
         echo "Software: $(software_status_text openssl)"
         show_software_description openssl
         echo ""
+        menu_section "Actions"
         echo " 1) Show OpenSSL Version"
         echo " 2) SHA-256 Hash a File"
         echo " 3) TLS Certificate Viewer"
+        echo ""
+        menu_section "Documentation"
         echo " 4) View OpenSSL Man Page / Help"
         echo " 0) Back"
         menu_prompt choice
@@ -6210,7 +6474,9 @@ diagnostics_menu() {
     local choice
     while true; do
         header "Tool_Box - Diagnostics"
-        echo " 1) Run All Checks"
+        echo ""
+        menu_section "Actions"
+        echo " R) Run All Checks"
         echo " 2) Software Status"
         echo " 3) Output Folder Check"
         echo " 4) Default Wordlist Check"
@@ -6224,7 +6490,7 @@ diagnostics_menu() {
         echo ""
         menu_prompt choice
         case "$choice" in
-            1) diagnostics_run_all ;;
+            r|R) diagnostics_run_all ;;
             2) diagnostics_software_status ;;
             3) diagnostics_output_folder ;;
             4) diagnostics_wordlist ;;
@@ -6252,22 +6518,25 @@ metasploit_menu() {
         show_software_description metasploit
         echo "This page only launches the local Metasploit console; Tool_Box does not install it."
         echo ""
-        echo " 1) Launch msfconsole"
-        echo " 2) Show Version"
-        echo " 3) View Metasploit Man Page / Help"
+        menu_section "Actions"
+        echo " R) Launch msfconsole"
+        echo " V) Show Version"
+        echo ""
+        menu_section "Documentation"
+        echo " D) View Metasploit Man Page / Help"
         echo " 0) Back"
         echo ""
         menu_prompt choice
 
         case "$choice" in
-            1) require_program metasploit && run_command_interactive_logged "exploit" "metasploit-session" || pause ;;
-            2)
+            r|R) require_program metasploit && run_command_interactive_logged "exploit" "metasploit-session" || pause ;;
+            v|V)
                 header "Tool_Box - Metasploit Version"
                 software_version_output metasploit
                 echo ""
                 pause
                 ;;
-            3) view_man_page metasploit ;;
+            d|D) view_man_page metasploit ;;
             0) return ;;
             *) echo "Invalid option."; pause ;;
         esac
