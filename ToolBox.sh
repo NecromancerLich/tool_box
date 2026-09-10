@@ -8,7 +8,7 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.33"
+ver="0.34"
 ip="127.0.0.1"
 subnet=32
 port="4444"
@@ -377,7 +377,6 @@ external_module_menu() {
         echo ""
         menu_section "Actions"
         echo ' R) Run'
-        echo ' 0) Back'
         menu_prompt choice || return
         case "$choice" in
             0) return ;;
@@ -407,7 +406,6 @@ external_management_menu() {
         echo ' 4) Unload one'
         echo ' 5) Unload all'
         echo ' 6) Rescan / reload selected modules'
-        echo ' 0) Back'
         menu_prompt choice || return
         case "$choice" in
             0) return ;;
@@ -476,7 +474,6 @@ ping_menu() {
         echo ""
         menu_section "Documentation"
         echo ' D) Help / Man Page'
-        echo ' 0) Back'
         menu_prompt choice || return
         case "$choice" in
             0) return ;;
@@ -798,8 +795,10 @@ msg_error() {
 
 menu_footer() {
     # Global navigation shortcuts are intentionally available from every menu.
-    # 0 remains the normal local Back action; M/T/W jump directly to common
-    # destinations without requiring the user to climb back through menus.
+    # Navigation policy: [0] Back is displayed here for every non-main menu, so
+    # individual menu bodies should NOT print a separate "0) Back" entry. The
+    # case statement in each menu still handles 0 normally. M/T/W/H remain
+    # global shortcuts and avoid forcing the user to climb back through menus.
     if [[ "$current_menu_title" == "Tool_Box" ]]; then
         printf '%b\n' "${C_DIM}[T] Set Target/Data   [W] Workspace   [H] Help${C_RESET}"
     else
@@ -1856,7 +1855,6 @@ repository_manager_menu() {
         echo ""
         menu_section "Actions"
         echo " R) Run APT Diagnostics"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2166,7 +2164,6 @@ software_details_menu() {
         echo " 2) Show Version"
         echo " 3) View Man Page / Help"
         echo " 4) Repository Troubleshooter"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2199,7 +2196,6 @@ install_individual_menu() {
             printf '%2d) %-18s : %s\n' "$i" "${software_display[$key]}" "$(software_status_text "$key")"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2229,7 +2225,6 @@ software_dependencies_menu() {
         echo " 5) Update Package Lists"
         echo " 6) Show Supported Software Versions"
         echo " 7) Show Missing Supported Software"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2263,7 +2258,6 @@ set_data_menu() {
         echo " 6) URL: $toolbox_url"
         echo " 7) Username: $toolbox_username"
         echo " 8) Password: ${toolbox_password:+[set]}"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2463,7 +2457,6 @@ set_nmap() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2565,7 +2558,6 @@ set_gobuster() {
         echo ""
         menu_section "Documentation"
         echo " D) View Gobuster Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2658,7 +2650,6 @@ ffuf_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View FFUF Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2716,7 +2707,6 @@ feroxbuster_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Feroxbuster Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2761,7 +2751,6 @@ whatweb_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View WhatWeb Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
@@ -2797,7 +2786,6 @@ nikto_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nikto Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
@@ -2833,7 +2821,6 @@ http_headers_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Curl Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
@@ -2870,7 +2857,6 @@ tls_certificate_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View OpenSSL Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter TLS port: " web_port; validate_port "$web_port" || web_port="$(get_first_port)" ;;
@@ -2906,7 +2892,6 @@ test_http_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Curl Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) [[ "$protocol" == http ]] && protocol=https || protocol=http ;;
@@ -2933,7 +2918,6 @@ web_enumeration_software_menu() {
                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -2965,7 +2949,6 @@ web_enumeration_menu() {
         echo " 8) Test HTTP/HTTPS"
         echo " 9) Web Enumeration Software"
         external_render "web enumeration"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3207,7 +3190,6 @@ workspace_notes_menu() {
         echo " 1) Add Note"
         echo " 2) View Notes"
         echo " 3) Edit Notes in Editor"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3267,7 +3249,6 @@ workspace_findings_menu() {
         echo " 1) Add Finding"
         echo " 2) View Findings"
         echo " 3) Search Findings"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3530,7 +3511,6 @@ workspace_menu() {
         echo "11) Unload Workspace"
         echo "12) Delete Current Workspace"
         external_render "workspace / project"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3572,7 +3552,6 @@ host_discovery_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program nmap && run_command_logged "recon" "host-discovery" || pause ;;
@@ -3600,7 +3579,6 @@ port_discovery_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program nmap && run_command_logged "recon" "port-discovery" || pause ;;
@@ -3628,7 +3606,6 @@ service_detection_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program nmap && run_command_logged "recon" "service-detection" || pause ;;
@@ -3653,7 +3630,6 @@ recon_software_menu() {
                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -3685,7 +3661,6 @@ reconnaissance_menu() {
         echo " 8) Reconnaissance Software"
         echo " 9) Ping"
         external_render "reconnaissance"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3727,7 +3702,6 @@ dns_lookup_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Dig Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter hostname or DNS name: " query ;;
@@ -3759,7 +3733,6 @@ reverse_dns_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Dig Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1)
@@ -3795,7 +3768,6 @@ whois_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View WHOIS Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1)
@@ -3832,7 +3804,6 @@ traceroute_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Traceroute Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1)
@@ -3865,7 +3836,6 @@ arp_scan_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View arp-scan Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program arp-scan && run_command_logged "network" "arp-scan" || pause ;;
@@ -3899,7 +3869,6 @@ netcat_test_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Netcat Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1)
@@ -3933,7 +3902,6 @@ local_interfaces_page() {
         echo ""
         menu_section "Documentation"
         echo " D) View ip Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3962,7 +3930,6 @@ routing_table_page() {
         echo ""
         menu_section "Documentation"
         echo " D) View ip Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -3988,7 +3955,6 @@ network_dns_software_menu() {
                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -4020,7 +3986,6 @@ network_dns_menu() {
         echo " 8) Routing Table"
         echo " 9) Network / DNS Software"
         external_render "network / dns"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4059,7 +4024,6 @@ enum4linux_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View enum4linux-ng Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program enum4linux-ng && run_command_logged "smb" "enum4linux-ng" || pause ;;
@@ -4087,7 +4051,6 @@ smb_list_shares_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View SMBClient Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program smbclient && run_command_logged "smb" "smb-shares" || pause ;;
@@ -4129,7 +4092,6 @@ smb_client_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View SMBClient Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter share name: " share ;;
@@ -4162,7 +4124,6 @@ nmap_smb_scripts_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program nmap && run_command_logged "smb" "nmap-smb-info" || pause ;;
@@ -4190,7 +4151,6 @@ netbios_info_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program nmap && run_command_logged "smb" "netbios-info" || pause ;;
@@ -4215,7 +4175,6 @@ smb_windows_software_menu() {
                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -4244,7 +4203,6 @@ smb_windows_menu() {
         echo " 5) NetBIOS Information"
         echo " 6) SMB / Windows Software"
         external_render "smb / windows"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4286,7 +4244,6 @@ ssh_enumeration_menu() {
         menu_section "Documentation"
         echo " 5) View SSH Man Page / Help"
         echo " 6) View Nmap Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4340,7 +4297,6 @@ ftp_enumeration_menu() {
         menu_section "Documentation"
         echo " 4) View Nmap Man Page / Help"
         echo " 5) View Netcat Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4386,7 +4342,6 @@ smtp_enumeration_menu() {
         menu_section "Documentation"
         echo " 5) View Netcat Man Page / Help"
         echo " 6) View Nmap Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4435,7 +4390,6 @@ snmp_enumeration_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View SNMPWalk Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4477,7 +4431,6 @@ ldap_enumeration_menu() {
         echo ""
         menu_section "Documentation"
         echo " 5) View LDAPSearch Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4520,7 +4473,6 @@ nfs_enumeration_menu() {
         menu_section "Documentation"
         echo " 3) View Showmount Man Page / Help"
         echo " 4) View RPCInfo Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4553,7 +4505,6 @@ rpc_enumeration_menu() {
         echo ""
         menu_section "Documentation"
         echo " 2) View RPCInfo Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4587,7 +4538,6 @@ database_services_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Nmap Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4617,7 +4567,6 @@ service_enumeration_software_menu() {
 '                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         if [[ "$choice" == "0" ]]; then
@@ -4647,7 +4596,6 @@ service_enumeration_menu() {
         echo " 8) Database Services"
         echo " 9) Service Enumeration Software"
         external_render "service enumeration"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4682,7 +4630,6 @@ vulnerability_software_menu() {
 '                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         if [[ "$choice" == "0" ]]; then
@@ -4725,7 +4672,6 @@ vulnerability_assessment_menu() {
         menu_section "Documentation"
         echo " 8) View Nmap Man Page / Help"
         external_render "vulnerability assessment"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -4805,7 +4751,6 @@ tcpdump_capture_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View tcpdump Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
 
         case "$choice" in
@@ -4852,7 +4797,6 @@ tcpdump_read_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View tcpdump Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter PCAP path: " pcap_file ;;
@@ -4884,7 +4828,6 @@ tcpdump_interfaces_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View tcpdump Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             r|R) require_program tcpdump && run_command_logged "traffic" "tcpdump" || pause ;;
@@ -4919,7 +4862,6 @@ tshark_analysis_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View TShark Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter PCAP path: " pcap_file ;;
@@ -4949,7 +4891,6 @@ traffic_analysis_software_menu() {
                 "$i" "${software_display[$key]}" "${software_status[$key]}" "${software_package[$key]}"
             ((i++))
         done
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -4979,7 +4920,6 @@ traffic_analysis_menu() {
         echo " 6) TShark Analysis"
         echo " 7) Traffic Analysis Software"
         external_render "traffic analysis"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -5022,7 +4962,6 @@ curl_utility_menu() {
         echo ""
         menu_section "Documentation"
         echo " 4) View Curl Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter URL: " url ;;
@@ -5056,7 +4995,6 @@ wget_utility_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Wget Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter URL: " url ;;
@@ -5089,7 +5027,6 @@ jq_utility_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View JQ Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1) read -r -p "Enter JSON file path: " json_file ;;
@@ -5119,7 +5056,6 @@ openssl_utility_menu() {
         echo ""
         menu_section "Documentation"
         echo " 4) View OpenSSL Man Page / Help"
-        echo " 0) Back"
         menu_prompt choice
         case "$choice" in
             1)
@@ -5424,7 +5360,6 @@ results_menu() {
         echo "11) View Tool_Box Command History"
         echo "12) Search Tool_Box Command History"
         external_render "results / reporting"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -5467,7 +5402,6 @@ utilities_software_menu() {
             ((i++))
         done
 
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -5496,7 +5430,6 @@ utilities_menu() {
         echo " 5) OpenSSL"
         echo " 6) Utilities Software"
         external_render "command-line utilities"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -5607,7 +5540,6 @@ network_info_menu() {
         echo " 2) VPN / Tunnel Status"
         echo " 3) Public IP (external request)"
         external_render "network information"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -5691,7 +5623,6 @@ text_encoding_menu() {
         echo " 7) SHA-256 Text Hash"
         echo " 8) Hash Identification Helper"
         external_render "text / encoding tools"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -5972,7 +5903,6 @@ scan_profiles_software_menu() {
             ((i++))
         done
 
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -6002,7 +5932,6 @@ scan_profiles_menu() {
         echo " 6) Custom (Open Nmap Builder)"
         echo " 7) Scan Profiles Software"
         external_render "scan profiles"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -6113,7 +6042,6 @@ settings_profiles_menu() {
         echo " 2) Load Profile"
         echo " 3) Delete Profile"
         echo " 4) List Profiles"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -6229,7 +6157,6 @@ settings_menu() {
         echo "11) Settings Profiles"
         echo "12) External Modules"
         external_render "settings"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -6486,7 +6413,6 @@ diagnostics_menu() {
         echo " 8) Bash Syntax Check"
         echo " 9) APT / Repository Troubleshooter"
         echo "10) Desktop / Browser / Clipboard Check"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -6524,7 +6450,6 @@ metasploit_menu() {
         echo ""
         menu_section "Documentation"
         echo " D) View Metasploit Man Page / Help"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -6549,7 +6474,6 @@ exploit_menu() {
         header "Tool_Box - Exploit"
         echo " 1) Metasploit"
         external_render "exploit"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7033,7 +6957,6 @@ useful_link_page() {
             echo " 3) Copy URL"
             echo " 4) Open in Chrome / Chromium"
         fi
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -7073,7 +6996,6 @@ useful_links_shell_menu() {
         echo " 1) Penelope"
         echo " 2) Reverse Shell Generator"
         external_render "shell / session tools"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7092,7 +7014,6 @@ useful_links_data_menu() {
         echo " 1) CyberChef"
         echo " 2) VirusTotal"
         external_render "data / encoding / analysis"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7112,7 +7033,6 @@ useful_links_privilege_menu() {
         echo " 2) LOLBAS"
         echo " 3) HackTricks"
         external_render "privilege references"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7133,7 +7053,6 @@ useful_links_web_menu() {
         echo " 2) OWASP Cheat Sheet Series"
         echo " 3) OWASP Web Security Testing Guide"
         external_render "web security"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7158,7 +7077,6 @@ useful_links_recon_menu() {
         echo " 6) CVE.org"
         echo " 7) NIST NVD"
         external_render "recon / vulnerabilities"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7183,7 +7101,6 @@ useful_links_payloads_menu() {
         echo " 2) SecLists"
         echo " 3) PacketLife Cheat Sheets"
         external_render "payloads / wordlists / cheatsheets"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7203,7 +7120,6 @@ useful_links_training_menu() {
         echo " 1) TryHackMe"
         echo " 2) PortSwigger Web Security Academy"
         external_render "training"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7237,7 +7153,6 @@ custom_bookmarks_menu() {
         echo ""
         echo " a) Add Bookmark"
         echo " r) Remove Bookmark"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -7295,7 +7210,6 @@ useful_links_menu() {
         echo " 7) Training"
         echo " 8) Custom Bookmarks"
         external_render "useful links"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7326,7 +7240,6 @@ pass_hash_cracking_menu() {
         echo " 1) Hash Identification Helper"
         echo " 2) Text / Encoding Tools"
         external_render "pass/hash cracking"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7354,7 +7267,6 @@ target_scanning_menu() {
         echo " 4) Import Nmap Results"
         echo " 5) Service-Aware Recommendations"
         external_render "target & scanning"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7382,7 +7294,6 @@ recon_enumeration_hub_menu() {
         echo " 5) Service Enumeration"
         echo " 6) Vulnerability Assessment"
         external_render "reconnaissance & enumeration"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7407,7 +7318,6 @@ access_exploitation_menu() {
         echo " 1) Pass / Hash Cracking"
         echo " 2) Exploit"
         external_render "access & exploitation"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7428,7 +7338,6 @@ analysis_reporting_menu() {
         echo " 1) Traffic Analysis"
         echo " 2) Results / Reporting"
         external_render "analysis & reporting"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7453,7 +7362,6 @@ utilities_resources_menu() {
         echo " 5) Useful Links"
         echo " 6) Quick Help / Workflow Guide"
         external_render "utilities & resources"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7637,7 +7545,6 @@ privilege_management_menu() {
             echo " 1) Start Tool_Box as Root"
         fi
         echo ""
-        echo " 0) Back"
         echo ""
         menu_prompt choice
 
@@ -7880,7 +7787,6 @@ documentation_download_menu() {
         echo " 4) Set Download Location"
         echo " 5) Open Repository"
         external_render "documentation"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7911,7 +7817,6 @@ about_toolbox_menu() {
         echo " 3) Check Repository Version"
         echo " 4) Privilege Guide"
         echo " 5) Download Documentation"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7942,7 +7847,6 @@ system_configuration_menu() {
         echo " 5) About / Version / Update Check"
         echo " 6) Documentation / Download Guides"
         external_render "system & configuration"
-        echo " 0) Back"
         echo ""
         menu_prompt choice
         case "$choice" in
