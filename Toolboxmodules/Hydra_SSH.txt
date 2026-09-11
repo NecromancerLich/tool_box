@@ -1,0 +1,6 @@
+Name: Hydra_SSH
+Description: Hydra is a powerful tool used for performing brute-force attacks on various network services, including SSH (Secure Shell).
+Category: Pass/Hash Cracking
+Command: hydra -l <<USERNAME>> -P <<WORDLIST>> <<OPTIONS>> <<IP>> ssh
+options:
+	Port: -s <<PORT>>
