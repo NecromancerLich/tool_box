@@ -10,14 +10,14 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="1.0"
+ver="1.01"
 ip="127.0.0.1"
 subnet=32
 port="4444"
 output_folder="./results"
 config_file="$HOME/.tool_box.conf"
 
-# v1.0 startup acknowledgement. Acceptance is recorded for both the terms
+# v1.01 startup acknowledgement. Acceptance is recorded for both the terms
 # revision and the Tool_Box release, so each new Tool_Box version asks again.
 terms_version="1"
 terms_acceptance_file="$HOME/.tool_box_terms.conf"
@@ -55,6 +55,8 @@ C_YELLOW=""
 C_BLUE=""
 C_MAGENTA=""
 C_CYAN=""
+C_BRIGHT_CYAN=""
+C_UNDERLINE=""
 
 # In-memory command history for the current session.
 command_history=()
@@ -1140,6 +1142,8 @@ refresh_colors() {
     C_BLUE=""
     C_MAGENTA=""
     C_CYAN=""
+    C_BRIGHT_CYAN=""
+    C_UNDERLINE=""
 
     if [[ "$color_enabled" == true && -t 1 && "${TERM:-dumb}" != "dumb" && -z "${NO_COLOR:-}" ]]; then
         color_active=true
@@ -1152,6 +1156,11 @@ refresh_colors() {
         C_BLUE=$'\033[34m'
         C_MAGENTA=$'\033[35m'
         C_CYAN=$'\033[36m'
+        # Bright cyan is used for paths/URLs that need stronger contrast on
+        # common black terminal backgrounds. Underline helps links stand out
+        # without relying on color alone.
+        C_BRIGHT_CYAN=$'\033[96m'
+        C_UNDERLINE=$'\033[4m'
     fi
 }
 
@@ -1266,7 +1275,9 @@ header() {
     printf '%b\n' "  ${C_BOLD}${title}${C_RESET}  ${C_DIM}v${ver}${C_RESET}"
     printf '%b\n' "${C_CYAN}${C_BOLD}========================================${C_RESET}"
     printf '%b\n' "Target : ${C_YELLOW}${ip}/${subnet}${C_RESET}   Ports: ${C_YELLOW}${port}${C_RESET}"
-    printf '%b\n' "Output : ${C_BLUE}${output_folder}${C_RESET}"
+    # Use bright cyan instead of ANSI dark blue so the output path stays
+    # readable on the common black terminal background.
+    printf '%b\n' "Output : ${C_BRIGHT_CYAN}${output_folder}${C_RESET}"
     if [[ "$workspace_loaded" == true ]]; then
         printf '%b\n' "Project: ${C_MAGENTA}${workspace_name}${C_RESET}"
     else
@@ -7366,7 +7377,9 @@ useful_link_page() {
         printf ' %s\n' "$description"
         echo ""
         printf '%b\n' "${C_BOLD}Link:${C_RESET}"
-        printf ' %b%s%b\n' "$C_BLUE" "$url" "$C_RESET"
+        # URLs use a high-contrast bright cyan plus underline so they remain
+        # readable on dark terminals and are recognizable even without color.
+        printf ' %b%s%b\n' "${C_BRIGHT_CYAN}${C_UNDERLINE}" "$url" "$C_RESET"
         echo ""
         printf ' Default opener : %b\n' "$(browser_status_text default)"
         printf ' Firefox        : %b\n' "$(browser_status_text firefox)"
@@ -8309,7 +8322,7 @@ startup_intro() {
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '             /                      \' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '            /________________________\' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '       ____|__________________________|____' "${C_RESET}"
-    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.0           |' "${C_RESET}"
+    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.01          |' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |-----------------------------------|' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |   Recon | Enumerate | Analyze     |' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |___________________________________|' "${C_RESET}"
@@ -8502,10 +8515,15 @@ main_menu() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     trap 'printf "%b\n" "$C_RESET"; exit 130' INT TERM
 
-    # Show the lightweight splash on every normal launch.  The authorized-use
-    # acknowledgement is required when either the terms revision or this Tool_Box
-    # version has not already been accepted by the current Linux user.
-    startup_intro
+    # Show the splash only when Tool_Box is launched directly by the user.
+    # Global navigation (M/T/W/H) and nested elevated sessions replace/restart
+    # the Bash process internally, so repeating the startup art there is noisy.
+    if [[ "$toolbox_nav_restart" != true && "$toolbox_elevated_session" != true ]]; then
+        startup_intro
+    fi
+
+    # The authorized-use acknowledgement remains version-aware. A new release
+    # still asks once per Linux user even though internal navigation skips art.
     require_terms_acceptance || exit 0
     main_menu
 fi

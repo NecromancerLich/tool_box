@@ -1,4 +1,4 @@
-# Tool_Box v1.0
+# Tool_Box v1.01
 
 Tool_Box is a menu-driven Bash wrapper for common Linux, networking, reconnaissance, enumeration, analysis, and lab-security utilities. It is designed to organize repeatable workflows while still showing the command that will be run.
 
@@ -27,6 +27,8 @@ Tool_Box/
 ├── LICENSE
 ├── TERMS.md
 ├── Tool_Box_External_Module_Guide.pdf
+├── Tool_Box_Functionality_Guide.pdf
+├── Tool_Box_Quick_Guide.txt
 └── Toolboxmodules/
     ├── Basic_curl.txt
     └── Basic_nmap.txt
@@ -46,6 +48,17 @@ chmod +x ToolBox.sh
 ```
 
 Tool_Box locates `Toolboxmodules` relative to the script itself, so it can be launched from a different working directory.
+
+---
+
+## v1.01 maintenance update
+
+Version 1.01 is a readability and navigation maintenance release. It does not change the external-module format introduced in v1.0.
+
+- Output-directory paths in the terminal header now use high-contrast bright cyan instead of dark ANSI blue.
+- URLs on Useful Links pages now use bright cyan and underline so they remain readable on black terminal backgrounds and recognizable without color alone.
+- The startup ASCII splash now appears only when Tool_Box is launched directly. Internal process restarts used by global navigation shortcuts such as **M - Main Menu** no longer replay the splash.
+- Per-version terms acknowledgement remains unchanged: upgrading to v1.01 still asks the current Linux user to accept the notice once.
 
 ---
 
@@ -274,7 +287,7 @@ Tool_Box_External_Module_Guide.pdf
 Toolboxmodules/
 ```
 
-Use Git tags and GitHub Releases for release numbers. Downloadable release archives may still use a versioned name such as `Tool_Box_v1.0.zip`.
+Use Git tags and GitHub Releases for release numbers. Downloadable release archives may still use a versioned name such as `Tool_Box_v1.01.zip`.
 
 ---
 
@@ -302,6 +315,15 @@ Use Git tags and GitHub Releases for release numbers. Downloadable release archi
 - Updated module help and Custom Placeholder Values handling so reserved option markers are treated as structural, not editable values.
 - Updated sample modules and the standalone External Module Guide.
 - Kept the per-version `[Y/n]` terms acknowledgement, stable GitHub filenames, menu conventions, password redaction, and existing external-module customization behavior.
+
+---
+
+## v1.01 changes
+
+- Improved terminal contrast for the output directory shown in headers.
+- Improved Useful Links URL contrast and added underlining.
+- Prevented the startup splash from replaying during internal Main Menu/global-navigation restarts.
+- Kept the v1.0 module format, menus, and command behavior unchanged.
 
 ---
 

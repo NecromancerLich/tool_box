@@ -1,7 +1,7 @@
 # Tool_Box Terms & Authorized-Use Conditions
 
 **Terms version: 1**  
-**Applies to: Tool_Box v1.0**
+**Applies to: Tool_Box v1.01**
 
 Tool_Box is a menu-driven wrapper for security, networking, system-administration, reconnaissance, enumeration, analysis, and related third-party tools.
 
