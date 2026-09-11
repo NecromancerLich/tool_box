@@ -10,14 +10,14 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="1.01"
+ver="1.02"
 ip="127.0.0.1"
 subnet=32
 port="4444"
 output_folder="./results"
 config_file="$HOME/.tool_box.conf"
 
-# v1.01 startup acknowledgement. Acceptance is recorded for both the terms
+# v1.02 startup acknowledgement. Acceptance is recorded for both the terms
 # revision and the Tool_Box release, so each new Tool_Box version asks again.
 terms_version="1"
 terms_acceptance_file="$HOME/.tool_box_terms.conf"
@@ -95,6 +95,13 @@ command=()
 toolbox_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 external_modules_dir="$toolbox_script_dir/Toolboxmodules"
 external_modules_config="${config_file%.conf}.modules.conf"
+
+# v1.02 GitHub module catalog. The Contents API is used only to list files in
+# the repository's Toolboxmodules directory. Individual modules are then
+# downloaded from the fresh download_url returned by GitHub and validated by
+# Tool_Box before they are written into the local Toolboxmodules directory.
+toolbox_modules_api_url="https://api.github.com/repos/NecromancerLich/tool_box/contents/Toolboxmodules?ref=main"
+toolbox_modules_repo_url="https://github.com/NecromancerLich/tool_box/tree/main/Toolboxmodules"
 toolbox_domain=""
 toolbox_url=""
 toolbox_username=""
@@ -822,6 +829,267 @@ external_module_menu() {
     done
 }
 
+# -------------------------
+# GitHub external-module catalog / downloader
+# -------------------------
+# Repository downloads intentionally do NOT auto-load modules. Downloaded files
+# are first validated with the same parser used by normal external modules, then
+# the user can review/load them through the existing External Modules controls.
+github_modules_fetch_index() {
+    local response parser_output name url
+
+    github_module_names=()
+    github_module_urls=()
+
+    if ! command -v curl >/dev/null 2>&1; then
+        msg_error "Curl is required to query the GitHub module repository."
+        msg_info "Install Curl from Tool_Box software management and try again."
+        return 1
+    fi
+
+    # The repository is public, so the GitHub Contents API works without a token.
+    # A User-Agent and API version header keep the request explicit and stable.
+    if ! response=$(curl -fsSL --connect-timeout 10 --max-time 30 \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'X-GitHub-Api-Version: 2022-11-28' \
+        -H 'User-Agent: Tool_Box' \
+        "$toolbox_modules_api_url" 2>/dev/null); then
+        msg_error "Unable to retrieve the GitHub module list."
+        msg_info "Check network access, GitHub availability, or API rate limits."
+        return 1
+    fi
+
+    # Prefer jq when available, then Python 3. The final sed fallback is kept
+    # deliberately small so a normal Linux lab VM can still list modules even
+    # when neither JSON helper is installed.
+    if command -v jq >/dev/null 2>&1; then
+        parser_output=$(printf '%s' "$response" | jq -r '
+            .[]
+            | select(.type == "file")
+            | select((.name | ascii_downcase) | endswith(".txt"))
+            | [.name, .download_url]
+            | @tsv
+        ' 2>/dev/null) || parser_output=""
+    elif command -v python3 >/dev/null 2>&1; then
+        parser_output=$(printf '%s' "$response" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if not isinstance(data, list):
+    raise SystemExit(1)
+for item in data:
+    name = item.get("name", "")
+    url = item.get("download_url") or ""
+    if item.get("type") == "file" and name.lower().endswith(".txt") and "\t" not in name and "\n" not in name and url:
+        print(f"{name}\t{url}")
+' 2>/dev/null) || parser_output=""
+    else
+        # Minimal Bash-only fallback. Remember a .txt name within one JSON object
+        # and pair it with that same object's HTTPS download_url. This avoids
+        # accidentally matching documentation files or directory entries.
+        local json_line fallback_name="" fallback_url=""
+        while IFS= read -r json_line; do
+            if [[ "$json_line" == *'"name": "'* ]]; then
+                fallback_name="${json_line#*\"name\": \"}"
+                fallback_name="${fallback_name%%\"*}"
+                [[ "${fallback_name,,}" == *.txt && "$fallback_name" != */* ]] || fallback_name=""
+            fi
+            if [[ -n "$fallback_name" && "$json_line" == *'"download_url": "https://'* ]]; then
+                fallback_url="${json_line#*\"download_url\": \"}"
+                fallback_url="${fallback_url%%\"*}"
+                parser_output+="$fallback_name"$'\t'"$fallback_url"$'\n'
+                fallback_name=""
+                fallback_url=""
+            elif [[ "$json_line" == *'}'* && "$json_line" != *'download_url'* ]]; then
+                fallback_name=""
+            fi
+        done <<< "$response"
+    fi
+
+    while IFS=$'\t' read -r name url; do
+        [[ -n "$name" && -n "$url" ]] || continue
+        # Never accept paths from the remote listing; module downloads are plain
+        # .txt basenames only, which prevents traversal outside Toolboxmodules.
+        [[ "$name" != */* && "$name" != *\\* && "$name" != *$'\n'* && "${name,,}" == *.txt ]] || continue
+        [[ "$url" == https://* ]] || continue
+        github_module_names+=("$name")
+        github_module_urls+=("$url")
+    done <<< "$parser_output"
+
+    if ((${#github_module_names[@]} == 0)); then
+        msg_error "GitHub returned no usable .txt modules."
+        msg_info "The repository layout may have changed, or the response could not be parsed."
+        return 1
+    fi
+
+    return 0
+}
+
+github_modules_print_index() {
+    local i name status
+    for ((i=0; i<${#github_module_names[@]}; i++)); do
+        name="${github_module_names[i]}"
+        if [[ -f "$external_modules_dir/$name" ]]; then
+            status="local"
+        else
+            status="available"
+        fi
+        printf ' %2d) %-34s [%s]\n' "$((i+1))" "$name" "$status"
+    done
+}
+
+github_module_download_file() {
+    local name="$1" url="$2" overwrite="${3:-false}"
+    local target temp_file
+
+    [[ -n "$name" && "$name" != */* && "$name" != *\\* && "$name" != *$'\n'* && "${name,,}" == *.txt ]] || {
+        msg_error "Rejected unsafe module filename: $name"
+        return 1
+    }
+    [[ "$url" == https://* ]] || {
+        msg_error "Rejected non-HTTPS module URL for $name"
+        return 1
+    }
+
+    mkdir -p -- "$external_modules_dir" || {
+        msg_error "Unable to create module folder: $external_modules_dir"
+        return 1
+    }
+
+    target="$external_modules_dir/$name"
+    if [[ -e "$target" && "$overwrite" != true ]]; then
+        return 2
+    fi
+
+    temp_file=$(mktemp "$external_modules_dir/.github-module.XXXXXX") || {
+        msg_error "Unable to create a temporary module file."
+        return 1
+    }
+
+    if ! curl -fsSL --connect-timeout 10 --max-time 30 --proto '=https' -o "$temp_file" "$url" 2>/dev/null; then
+        rm -f -- "$temp_file"
+        msg_error "Download failed: $name"
+        return 1
+    fi
+
+    # Validate remote content before replacing/creating a local module. This
+    # catches malformed definitions and preserves an existing local copy when a
+    # downloaded file is invalid.
+    if ! external_parse "$temp_file"; then
+        rm -f -- "$temp_file"
+        msg_error "Downloaded module failed validation and was not installed: $name"
+        return 1
+    fi
+
+    chmod 0644 "$temp_file" 2>/dev/null || true
+    if ! mv -f -- "$temp_file" "$target"; then
+        rm -f -- "$temp_file"
+        msg_error "Unable to save module: $target"
+        return 1
+    fi
+
+    msg_success "Downloaded: $name"
+    return 0
+}
+
+github_modules_repository_menu() {
+    local choice selected confirm name url rc i
+    local downloaded skipped failed overwrite
+
+    while true; do
+        header "Tool_Box - External Modules - GitHub Repository"
+        show_module_description "List and download module definitions published in the Tool_Box GitHub repository. Downloads are validated but are not automatically loaded."
+        echo ""
+        menu_section "Repository"
+        printf ' %s\n' "$toolbox_modules_repo_url"
+        echo ""
+        menu_section "Actions"
+        echo " 1) List available GitHub modules"
+        echo " 2) Download one module"
+        echo " 3) Download all missing modules"
+        echo ""
+        menu_section "Notes"
+        echo " Downloaded modules are saved to: $external_modules_dir"
+        echo " Existing local files are skipped during Download All."
+        echo " Use Load one/all or Rescan after reviewing downloaded modules."
+        menu_prompt choice || return
+
+        case "$choice" in
+            0) return ;;
+            1)
+                header "Tool_Box - GitHub Module Catalog"
+                if github_modules_fetch_index; then
+                    printf 'Repository modules: %d\n\n' "${#github_module_names[@]}"
+                    github_modules_print_index
+                fi
+                echo ""
+                pause
+                ;;
+            2)
+                header "Tool_Box - Download GitHub Module"
+                github_modules_fetch_index || { pause; continue; }
+                github_modules_print_index
+                echo ""
+                IFS= read -r -p "Module number (0 cancels): " selected || return
+                [[ "$selected" == 0 ]] && continue
+                if [[ ! "$selected" =~ ^[0-9]+$ ]] || ((selected < 1 || selected > ${#github_module_names[@]})); then
+                    msg_warn "Invalid module number."
+                    pause
+                    continue
+                fi
+                name="${github_module_names[selected-1]}"
+                url="${github_module_urls[selected-1]}"
+                overwrite=false
+                if [[ -e "$external_modules_dir/$name" ]]; then
+                    printf 'A local copy already exists: %s\n' "$name"
+                    IFS= read -r -p "Overwrite it with the GitHub copy? [y/N]: " confirm || return
+                    [[ "$confirm" =~ ^[Yy]$ ]] || { msg_info "Download cancelled."; pause; continue; }
+                    overwrite=true
+                fi
+                github_module_download_file "$name" "$url" "$overwrite"
+                rc=$?
+                if ((rc == 0)); then
+                    external_scan
+                    msg_info "The module was downloaded but not automatically loaded."
+                    if [[ "$overwrite" == true ]]; then
+                        msg_info "If it was already loaded, use Rescan / reload selected modules."
+                    fi
+                fi
+                pause
+                ;;
+            3)
+                header "Tool_Box - Download All GitHub Modules"
+                github_modules_fetch_index || { pause; continue; }
+                printf 'GitHub modules found: %d\n' "${#github_module_names[@]}"
+                echo "Existing local files will be skipped."
+                IFS= read -r -p "Download all missing modules? [y/N]: " confirm || return
+                [[ "$confirm" =~ ^[Yy]$ ]] || { msg_info "Download cancelled."; pause; continue; }
+
+                downloaded=0; skipped=0; failed=0
+                for ((i=0; i<${#github_module_names[@]}; i++)); do
+                    name="${github_module_names[i]}"
+                    url="${github_module_urls[i]}"
+                    github_module_download_file "$name" "$url" false
+                    rc=$?
+                    case "$rc" in
+                        0) ((downloaded+=1)) ;;
+                        2) printf '[-] Skipped existing: %s\n' "$name"; ((skipped+=1)) ;;
+                        *) ((failed+=1)) ;;
+                    esac
+                done
+                external_scan
+                echo ""
+                printf 'Downloaded: %d   Skipped: %d   Failed: %d\n' "$downloaded" "$skipped" "$failed"
+                msg_info "Downloaded modules are not automatically loaded. Review them, then use Load one/all."
+                pause
+                ;;
+            *) msg_warn "Invalid option"; pause ;;
+        esac
+    done
+}
+
 external_management_menu() {
     local choice file number selected found i
     while true; do
@@ -833,6 +1101,7 @@ external_management_menu() {
         echo ' 4) Unload one'
         echo ' 5) Unload all'
         echo ' 6) Rescan / reload selected modules'
+        echo ' 7) GitHub Module Repository'
         menu_prompt choice || return
         case "$choice" in
             0) return ;;
@@ -875,6 +1144,7 @@ external_management_menu() {
                 external_selected=("${retained[@]}"); external_reload; external_save_selection; pause ;;
             5) external_selected=(); external_reload; external_save_selection; pause ;;
             6) external_scan; external_reload; pause ;;
+            7) github_modules_repository_menu ;;
             *) msg_warn 'Invalid option'; pause ;;
         esac
     done
@@ -8322,7 +8592,7 @@ startup_intro() {
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '             /                      \' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '            /________________________\' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '       ____|__________________________|____' "${C_RESET}"
-    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.01          |' "${C_RESET}"
+    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.02          |' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |-----------------------------------|' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |   Recon | Enumerate | Analyze     |' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |___________________________________|' "${C_RESET}"
