@@ -1,30 +1,29 @@
-TOOL_BOX v0.29 - QUICK GUIDE
-============================
+TOOL_BOX v1.0 - QUICK GUIDE
+===========================
+Authorized use only. Use Tool_Box only on systems, networks, services, accounts,
+and data that you own or are explicitly authorized to test.
 
-Tool_Box is a Bash-based, menu-driven security lab and network utility wrapper.
-It is intended for systems, networks, and accounts you are authorized to test or administer.
+START
+-----
+bash ToolBox.sh
 
-STARTING TOOL_BOX
+or:
+chmod +x ToolBox.sh
+./ToolBox.sh
+
+On the first launch of each Tool_Box version, accept the authorized-use notice:
+Accept terms and continue? [Y/n]:
+
+GLOBAL NAVIGATION
 -----------------
-Make the script executable and launch it as your normal desktop user:
+[0] Back
+[M] Main Menu
+[T] Set Target/Data
+[W] Workspace
+[H] Help
 
-    chmod +x tool_box_v0.29.sh
-    ./tool_box_v0.29.sh
-
-Use the built-in privilege menu or sudo prompts when a task requires root access.
-Running the entire program as root is not required for normal use.
-
-DEFAULT SESSION
----------------
-Target IP:      127.0.0.1
-Subnet:         /32
-Ports:          4444
-Output folder:  ./results
-Threads:        10
-Auto-Save:      OFF
-Verbose:        OFF
-Dry-Run:        OFF
-Color:          ON
+Primary command key: R = Run
+Most command pages also provide D = Documentation/Help.
 
 MAIN MENU
 ---------
@@ -36,306 +35,232 @@ MAIN MENU
 6) System & Configuration
 0) Exit
 
-GLOBAL NAVIGATION FOOTER
-------------------------
-Nested menus display:
-
-    [0] Back   [M] Main Menu   [T] Set Target/Data   [W] Workspace   [H] Help
-
-Shortcuts:
-0  Go back one menu level.
-M  Return directly to the Main Menu.
-T  Jump to Set Target / Data, then return to Main Menu.
-W  Jump to Workspace / Project, then return to Main Menu.
-H  Open Quick Help / Workflow Guide, then return to Main Menu.
-
-The Main Menu shows only T, W, and H because Back/Main Menu are unnecessary there.
-Using these shortcuts does not discard the active target, ports, settings, output
-folder, privilege state, or loaded workspace.
-
-TARGET & SCANNING
------------------
+1) TARGET & SCANNING
+--------------------
 Workspace / Project
-    - Create and load named projects.
-    - Save current target, subnet, ports, wordlist, threads, and output settings.
-    - Maintain timestamped notes and structured findings.
-    - Import Nmap XML, grepable (.gnmap), and normal text results.
-    - Store imported services in services.tsv.
-    - Show service-aware recommendations.
-    - Archive or delete a workspace with safeguards.
+- Create/load/save/archive/unload/delete workspaces.
+- Dashboard shows result counts, imported services, notes, and findings.
+- Notes: add/view/edit Markdown notes.
+- Findings / Loot Tracker: host, service, username, credential, URL, file, hash, other.
+- Import Nmap XML, .gnmap, or normal text output into the workspace.
+- Service-Aware Recommendations point to the relevant Tool_Box area.
 
 Set Target / Data
-    - Set IPv4 address.
-    - Set subnet /1 through /32.
-    - Set individual ports, ranges, or lists.
-    - Set the output folder.
+- IP
+- Subnet
+- Ports
+- Output folder
+- Domain
+- URL
+- Username
+- Password (sensitive session value)
 
 Scan Profiles
-    - Quick Recon
-    - Full TCP Recon
-    - Web Server
-    - Windows / SMB
-    - Linux Server
-    - Custom Nmap builder
+- Quick Recon
+- Full TCP Recon
+- Web Server
+- Windows / SMB
+- Linux Server
+- Custom Nmap Builder
 
-Nmap Builder
-    - SYN, Connect, or UDP scan type.
-    - Version, OS, default scripts, skip ping, T4, and aggressive toggles.
-    - Custom options.
-    - Optional timestamped output.
-    - Command preview before execution.
-
-RECONNAISSANCE & ENUMERATION
-----------------------------
+2) RECONNAISSANCE & ENUMERATION
+-------------------------------
 Reconnaissance
-    - Nmap custom builder
-    - Host discovery
-    - Port discovery
-    - Service detection
-    - DNS enumeration
-    - WHOIS
-    - Traceroute
+- Nmap Custom Builder
+- Host Discovery
+- Port Discovery
+- Service Detection
+- DNS Enumeration
+- WHOIS
+- Traceroute
+- Ping
 
 Web Enumeration
-    - Gobuster
-    - FFUF
-    - Feroxbuster
-    - WhatWeb
-    - Nikto
-    - Curl HTTP headers
-    - OpenSSL TLS certificate view
-    - HTTP/HTTPS connectivity test
+- Gobuster
+- FFUF
+- Feroxbuster
+- WhatWeb
+- Nikto
+- HTTP Headers (Curl)
+- TLS Certificate (OpenSSL)
+- Test HTTP/HTTPS
 
 Network / DNS
-    - DNS lookup
-    - Reverse DNS
-    - WHOIS
-    - Traceroute
-    - ARP scan
-    - Netcat TCP test
-    - Local interfaces
-    - Routing table
-
-CUSTOM TARGET / QUERY OVERRIDES
--------------------------------
-Several tools can use temporary values without changing the global Tool_Box target:
-
-DNS Lookup       Custom hostname or DNS name
-Reverse DNS      Custom IP address
-WHOIS            Custom IP address or domain
-Traceroute       Custom IP address or domain
-Netcat TCP Test  Custom IP/domain and port
-
-WHOIS, Traceroute, and Netcat provide a reset option to return to the current
-global target. These temporary values are useful for quick lookups while keeping a
-TryHackMe or other lab host set as the main target.
+- DNS Lookup / Reverse DNS
+- WHOIS / Traceroute
+- ARP Scan
+- Netcat TCP Port Test
+- Local Interfaces / Routing Table
 
 SMB / Windows
-    - enum4linux-ng enumeration
-    - SMB share listing
-    - SMB client
-    - Nmap SMB information scripts
-    - NetBIOS information
+- enum4linux-ng
+- List SMB Shares
+- SMB Client
+- Nmap SMB Information Scripts
+- NetBIOS Information
 
 Service Enumeration
-    - SSH
-    - FTP
-    - SMTP
-    - SNMP
-    - LDAP
-    - NFS
-    - RPC
-    - Database services
+- SSH
+- FTP
+- SMTP
+- SNMP
+- LDAP
+- NFS
+- RPC
+- Database Services
 
 Vulnerability Assessment
-    - Assessment port selection
-    - Safe NSE script scan
-    - TLS cipher assessment
-    - HTTP security headers
-    - SMB security configuration
-    - Service detection + default scripts
+- Safe NSE script scan
+- TLS cipher assessment
+- HTTP security headers
+- SMB security configuration
+- Service detection + default scripts
 
-ACCESS & EXPLOITATION
----------------------
+3) ACCESS & EXPLOITATION
+------------------------
 Pass / Hash Cracking
-    - Hash Identification Helper
-    - Text / Encoding Tools
+- Hash Identification Helper
+- Text / Encoding Tools
 
 Exploit
-    - Launch msfconsole
-    - Show Metasploit version
-    - View Metasploit help/man information
+- Metasploit (R = launch msfconsole, V = version, D = help)
 
-Tool_Box does not automatically install Metasploit.
-
-ANALYSIS & REPORTING
---------------------
+4) ANALYSIS & REPORTING
+-----------------------
 Traffic Analysis
-    - tcpdump capture/read
-    - Interface listing
-    - Capture by host or port
-    - TShark PCAP analysis
+- Start/read tcpdump capture
+- List capture interfaces
+- Capture by host/port
+- TShark analysis
 
 Results / Reporting
-    - Results dashboard
-    - List targets and recent result files
-    - View/search text results
-    - Compare two text results
-    - Generate Markdown target report
-    - Archive target results
-    - Delete a result file with path safeguards
-    - View/search Tool_Box command history
+- Results Dashboard
+- List targets/recent files
+- View/search/compare results
+- Generate Markdown target report
+- Archive current target results
+- Delete a result file
+- View/search Tool_Box command history
 
-Workspace reports can incorporate imported services, findings, notes, and result previews.
-
-UTILITIES & RESOURCES
----------------------
+5) UTILITIES & RESOURCES
+------------------------
 Command-Line Utilities
-    - Curl
-    - Wget
-    - Netcat TCP Test
-    - JQ
-    - OpenSSL
+- Curl, Wget, Netcat, JQ, OpenSSL
 
 Network Information / VPN Status
-    - Local interfaces, routes, DNS, and neighbors
-    - VPN/tunnel detection (tun, tap, wg-style interfaces)
-    - Public IP lookup
+- Local interfaces/routes/DNS
+- VPN/tunnel status
+- Public IP
 
 Text / Encoding Tools
-    - Base64 encode/decode
-    - Hex encode/decode
-    - URL encode/decode
-    - SHA-256 text hash
-    - Hash identification helper
+- Base64 encode/decode
+- Hex encode/decode
+- URL encode/decode
+- SHA-256 text hash
+- Hash identification helper
 
-Port Reference
-    Enter a port to view a common service description and decide which Tool_Box
-    enumeration section is most relevant.
+Other
+- Port Reference
+- Useful Links
+- Quick Help / Workflow Guide
 
-USEFUL LINKS
-------------
-1) Shell / Session Tools
-    - Penelope
-    - Reverse Shell Generator
-
-2) Linux / Windows Privilege References
-    - GTFOBins
-    - LOLBAS
-    - HackTricks
-
-3) Data / Encoding / Analysis
-    - CyberChef
-    - VirusTotal
-
-4) Web Security
-    - PortSwigger Web Security Academy
-    - OWASP Cheat Sheet Series
-    - OWASP Web Security Testing Guide
-
-5) Recon / Vulnerability References
-    - crt.sh
-    - Nmap Reference Guide
-    - Nmap NSE Documentation
-    - Exploit Database
-    - MITRE ATT&CK
-    - CVE.org
-    - NIST NVD
-
-6) Payloads / Wordlists / Cheat Sheets
-    - PayloadsAllTheThings
-    - SecLists
-    - PacketLife Cheat Sheets
-
-7) Training
-    - TryHackMe
-    - PortSwigger Web Security Academy
-
-8) Custom Bookmarks
-    - Add and remove your own HTTP/HTTPS bookmarks.
-    - Stored in ~/.tool_box_links.tsv.
-
-The dedicated "GTFOBins - less" shortcut has been removed. Use the main GTFOBins
-reference instead. CyberChef is now grouped under Data / Encoding / Analysis.
-
-Each link page can use the default browser, Firefox, Chrome/Chromium when installed,
-and clipboard helpers when available. When Tool_Box is running as root, the Firefox
-page includes an option to prompt for a normal desktop username and launch Firefox as
-that user.
-
-SYSTEM & CONFIGURATION
-----------------------
+6) SYSTEM & CONFIGURATION
+-------------------------
 Install / Manage Software
-    - Scan installed supported software.
-    - Install/manage supported packages on apt-based systems.
-    - Install missing packages.
-    - Repository troubleshooting.
-    - Update package lists.
-    - Display supported/missing software.
+- Scan for installed tools
+- Install/manage supported software
+- Install missing software
+- Repository troubleshooter
+- Update package lists
+- Show supported versions / missing tools
 
 Settings
-    - Default wordlist and thread count.
-    - Output directory.
-    - Auto-Save, Verbose, Dry-Run, and Color toggles.
-    - Save/load configuration.
-    - Named settings profiles.
+- Default wordlist / threads
+- Output directory
+- Auto-Save / Verbose / Dry-Run / Color
+- Save / Load configuration
+- Reset defaults
+- Settings Profiles
+- External Modules
 
 Diagnostics
-    - Run all checks.
-    - Software and output-folder checks.
-    - Wordlist and configuration checks.
-    - Interfaces/routes.
-    - Privilege/package manager information.
-    - Bash syntax check.
-    - APT/repository troubleshooting.
-    - Desktop/browser/clipboard check.
+- R = Run All Checks
+- Software status
+- Output folder
+- Wordlist
+- Interfaces/routes
+- Configuration
+- Privilege/package manager
+- Bash syntax
+- APT/repositories
+- Desktop/browser/clipboard
 
 Privilege / User Session
-    - Start a nested Tool_Box session as root using sudo.
-    - Return to the original user session after root work is complete.
-    - Session state is carried into the root child.
+- Start a nested root Tool_Box session when required.
+- Exiting the root child returns to the original standard-user session.
 
-PRIVILEGE GUIDANCE
-------------------
-[USER]
-Most web, DNS, SMB client, service-enumeration, text-processing, reporting,
-and utility actions.
+About / Version / Update Check
+- Repository link/copy
+- Version check
+- Privilege guide
+- Documentation download
+- Terms / Authorized Use
 
-[ROOT OPTIONAL]
-Some Nmap scan modes can benefit from raw-socket privileges/capabilities.
+Documentation / Download Guides
+- Full PDF: Tool_Box_Functionality_Guide.pdf
+- Quick TXT: Tool_Box_Quick_Guide.txt
 
-[ROOT REQUIRED]
-Packet capture, some ARP/network discovery operations, and package/repository changes.
+EXTERNAL MODULES - HOW THEY WORK
+--------------------------------
+Location:
+System & Configuration -> Settings -> External Modules
 
-FILES AND LOCATIONS
--------------------
-Configuration:       ~/.tool_box.conf
-Settings profiles:   ~/.tool_box_profiles/<profile>.conf
-Custom links:        ~/.tool_box_links.tsv
-Command history:     <output>/tool_box_command_history.log
-Target results:      <output>/<target>/<category>/...
-Workspaces:          <output>/workspaces/<workspace>/
-Workspace state:     workspace.conf
-Workspace notes:     notes.md
-Workspace findings:  findings.tsv
-Imported services:   services.tsv
-Workspace archives:  <output>/workspace_archives/
-Target archives:     <output>/archives/
-Markdown reports:    current target result directory
+External modules add reviewed .txt-defined command pages without editing ToolBox.sh.
+Loading a module definition does NOT execute its command.
+
+A module may have up to three positioned option groups. v1.0 supports the reserved
+structural markers <<OPTIONS>>, <<OPTIONS2>>, and <<OPTIONS3>>. The module menu
+shows those groups separately while keeping continuous option numbering.
+
+Module controls:
+C = Custom Placeholder Values (module-local overrides)
+A = Custom Arguments
+X = Clear Customizations
+R = Run
+D = Module Help
+
+This Quick Guide does NOT include module-creation instructions.
+For full module-writing syntax, examples, category aliases, templates, validation,
+and troubleshooting, see:
+Tool_Box_External_Module_Guide.pdf
+
+OUTPUT / STATE
+--------------
+Default results root: ./results
+Saved config:          ~/.tool_box.conf
+Module selections:     ~/.tool_box.modules.conf
+Terms acceptance:      ~/.tool_box_terms.conf
+Settings profiles:     ~/.tool_box_profiles/
+Command history:       <output folder>/tool_box_command_history.log
 
 RECOMMENDED WORKFLOW
 --------------------
-1. Create or load a Workspace.
-2. Set the target, subnet, ports, output path, wordlist, and threads.
-3. Run an Nmap scan/profile.
-4. Import saved Nmap output into the workspace when useful.
-5. Review service-aware recommendations.
-6. Enumerate the discovered Web, SMB, DNS, or other services.
-7. Record important information in Notes and Findings.
-8. Search/compare results and generate a Markdown report.
-9. Archive the target or workspace when finished.
+1. Create/load a workspace.
+2. Set target, subnet, ports, output directory, and defaults.
+3. Use Dry-Run for unfamiliar commands/modules.
+4. Run Nmap or a Scan Profile.
+5. Import saved Nmap results into the workspace.
+6. Review Service-Aware Recommendations.
+7. Record Notes and Findings.
+8. Use Results / Reporting to search output and generate a report.
 
-NAVIGATION TIP
---------------
-You rarely need to climb all the way back through the menu tree in v0.29.
-Use M for Main Menu, T for target settings, W for workspaces, and H for help.
+SAFETY REMINDERS
+----------------
+- Confirm the target before R = Run.
+- Confirm you are authorized.
+- Review Command Preview.
+- Use root only when needed.
+- Do not hard-code real passwords/tokens/private keys into modules.
+- Third-party programs may print or log sensitive information.
+- Review saved output before publishing or committing it.
+- Tool_Box is MIT licensed and provided as-is; read LICENSE and TERMS.md.

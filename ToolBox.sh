@@ -3,17 +3,24 @@
 # ==========================================================
 # Tool_Box
 # A menu-driven wrapper for common Linux/network lab tools.
+# License: MIT (see the LICENSE file distributed with Tool_Box).
+# Development note: this project has been built with substantial AI assistance.
 # ==========================================================
 
 # -------------------------
 # Global configuration
 # -------------------------
-ver="0.34"
+ver="1.0"
 ip="127.0.0.1"
 subnet=32
 port="4444"
 output_folder="./results"
 config_file="$HOME/.tool_box.conf"
+
+# v1.0 startup acknowledgement. Acceptance is recorded for both the terms
+# revision and the Tool_Box release, so each new Tool_Box version asks again.
+terms_version="1"
+terms_acceptance_file="$HOME/.tool_box_terms.conf"
 
 # Distribution/repository information is detected at runtime. Tool_Box only
 # enables repositories that belong to the detected operating system; it never
@@ -91,7 +98,7 @@ toolbox_url=""
 toolbox_username=""
 toolbox_password=""
 declare -a external_selected=() external_files=() external_loaded=()
-declare -A external_name=() external_description=() external_category=() external_command=() external_options=()
+declare -A external_name=() external_description=() external_category=() external_command=() external_options=() external_options2=() external_options3=()
 declare -A external_categories=()
 external_categories["target & scanning"]="target & scanning"
 external_categories["reconnaissance & enumeration"]="reconnaissance & enumeration"
@@ -180,44 +187,155 @@ external_tokenize() {
 }
 
 external_parse() {
-    local file="$1" line key value in_options=false number=0 label
-    local -A fields=() labels=()
-    parsed_name=""; parsed_description=""; parsed_category=""; parsed_command=""; parsed_options=""
+    local file="$1" line key value section="fields" number=0 label key_lower
+    local -A fields=() labels1=() labels2=() labels3=()
+
+    parsed_name=""; parsed_description=""; parsed_category=""; parsed_command=""
+    parsed_options=""; parsed_options2=""; parsed_options3=""
+
     [[ -f "$file" && -r "$file" && ! -L "$file" ]] || { msg_warn "Unreadable or linked module: $file"; return 1; }
+
     while IFS= read -r line || [[ -n "$line" ]]; do
-        ((number+=1)); line="${line%$'\r'}"
+        ((number+=1))
+        line="${line%$'\r'}"
         [[ $number == 1 ]] && line="${line#$'\xef\xbb\xbf'}"
         external_trim "$line"; line="$external_trimmed"
         [[ -z "$line" || "$line" == \#* ]] && continue
-        if [[ "$line" != *:* ]]; then msg_warn "$file:$number: expected Field: value"; return 1; fi
+
+        if [[ "$line" != *:* ]]; then
+            msg_warn "$file:$number: expected Field: value"
+            return 1
+        fi
+
         external_trim "${line%%:*}"; key="$external_trimmed"
         external_trim "${line#*:}"; value="$external_trimmed"
         [[ -n "$key" && "$key" != *$'\t'* ]] || { msg_warn "$file:$number: invalid field or option name"; return 1; }
-        if [[ "$in_options" == true ]]; then
-            label="${key,,}"
-            [[ -n "$key" && -n "$value" && -z "${labels[$label]+x}" ]] || { msg_warn "$file:$number: empty or duplicate option"; return 1; }
-            external_tokenize "$value" || { msg_warn "$file:$number: invalid option arguments"; return 1; }
-            labels["$label"]=1
-            parsed_options+="$key"$'\t'"$value"$'\n'
+        key_lower="${key,,}"
+
+        # v1.0 supports up to three option sections. They must appear in order
+        # after the four required fields so parsing stays deterministic.
+        case "$key_lower" in
+            options|options2|options3)
+                [[ -z "$value" ]] || { msg_warn "$file:$number: $key_lower must be a section"; return 1; }
+                [[ -z "${fields[$key_lower]+x}" ]] || { msg_warn "$file:$number: duplicate section $key_lower"; return 1; }
+                [[ -n "${fields[name]+x}" && -n "${fields[description]+x}" && -n "${fields[category]+x}" && -n "${fields[command]+x}" ]] || {
+                    msg_warn "$file:$number: option sections must come after Name, Description, Category and Command"
+                    return 1
+                }
+                if [[ "$key_lower" == options2 && -z "${fields[options]+x}" ]]; then
+                    msg_warn "$file:$number: options2 must come after options"
+                    return 1
+                fi
+                if [[ "$key_lower" == options3 && -z "${fields[options2]+x}" ]]; then
+                    msg_warn "$file:$number: options3 must come after options2"
+                    return 1
+                fi
+                fields["$key_lower"]=1
+                section="$key_lower"
+                continue
+                ;;
+        esac
+
+        if [[ "$section" == "fields" ]]; then
+            [[ -z "${fields[$key_lower]+x}" ]] || { msg_warn "$file:$number: duplicate field $key_lower"; return 1; }
+            fields["$key_lower"]=1
+            case "$key_lower" in
+                name) parsed_name="$value" ;;
+                description) parsed_description="$value" ;;
+                category) parsed_category="${value,,}" ;;
+                command) parsed_command="$value" ;;
+                *) msg_warn "$file:$number: unknown field '$key' (use Category, not Catagory)"; return 1 ;;
+            esac
             continue
         fi
-        key="${key,,}"
-        [[ -z "${fields[$key]+x}" ]] || { msg_warn "$file:$number: duplicate field $key"; return 1; }
-        fields["$key"]=1
-        case "$key" in
-            name) parsed_name="$value" ;;
-            description) parsed_description="$value" ;;
-            category) parsed_category="${value,,}" ;;
-            command) parsed_command="$value" ;;
-            options) [[ -z "$value" ]] || { msg_warn "$file:$number: options must be a section"; return 1; }; in_options=true ;;
-            *) msg_warn "$file:$number: unknown field '$key' (use Category, not Catagory)"; return 1 ;;
+
+        # Once option sections begin, required fields may not reappear. Every
+        # remaining non-section line is an option label and its argument text.
+        case "$key_lower" in
+            name|description|category|command)
+                msg_warn "$file:$number: required fields must appear before option sections"
+                return 1
+                ;;
+        esac
+        [[ -n "$key" && -n "$value" ]] || { msg_warn "$file:$number: empty option"; return 1; }
+        external_tokenize "$value" || { msg_warn "$file:$number: invalid option arguments"; return 1; }
+
+        # Reserved option-placement markers belong only in Command:. Keeping
+        # them out of option fragments prevents recursive/ambiguous placement.
+        local option_token option_reserved_pattern='<<OPTIONS[0-9]*>>'
+        for option_token in "${external_tokens[@]}"; do
+            if [[ "$option_token" == *'<<OPTIONS>>'* || "$option_token" == *'<<OPTIONS2>>'* || "$option_token" == *'<<OPTIONS3>>'* || "$option_token" =~ $option_reserved_pattern ]]; then
+                msg_warn "$file:$number: reserved OPTIONS markers are allowed only in Command"
+                return 1
+            fi
+        done
+
+        case "$section" in
+            options)
+                label="${key,,}"
+                [[ -z "${labels1[$label]+x}" ]] || { msg_warn "$file:$number: duplicate option in options: $key"; return 1; }
+                labels1["$label"]=1
+                parsed_options+="$key"$'\t'"$value"$'\n'
+                ;;
+            options2)
+                label="${key,,}"
+                [[ -z "${labels2[$label]+x}" ]] || { msg_warn "$file:$number: duplicate option in options2: $key"; return 1; }
+                labels2["$label"]=1
+                parsed_options2+="$key"$'\t'"$value"$'\n'
+                ;;
+            options3)
+                label="${key,,}"
+                [[ -z "${labels3[$label]+x}" ]] || { msg_warn "$file:$number: duplicate option in options3: $key"; return 1; }
+                labels3["$label"]=1
+                parsed_options3+="$key"$'\t'"$value"$'\n'
+                ;;
         esac
     done < "$file"
-    [[ -n "$parsed_name" && -n "$parsed_description" && -n "$parsed_category" && -n "$parsed_command" ]] || { msg_warn "$file: Name, Description, Category and Command are required"; return 1; }
+
+    [[ -n "$parsed_name" && -n "$parsed_description" && -n "$parsed_category" && -n "$parsed_command" ]] || {
+        msg_warn "$file: Name, Description, Category and Command are required"
+        return 1
+    }
     [[ -n "${external_categories[$parsed_category]:-}" ]] || { msg_warn "$file: unknown category '$parsed_category'"; return 1; }
     parsed_category="${external_categories[$parsed_category]}"
+
     external_tokenize "$parsed_command" || { msg_warn "$file: invalid Command (use a program and arguments)"; return 1; }
     [[ "${external_tokens[0]}" != *'<<'* ]] || { msg_warn "$file: the executable cannot be a placeholder"; return 1; }
+
+    # Reserved option placeholders must be standalone command tokens and may
+    # appear no more than once. OPTIONS keeps backward compatibility: an
+    # options: section without <<OPTIONS>> is still appended to the command.
+    local token marker count_options=0 count_options2=0 count_options3=0
+    for token in "${external_tokens[@]}"; do
+        for marker in OPTIONS OPTIONS2 OPTIONS3; do
+            if [[ "$token" == *"<<$marker>>"* ]]; then
+                [[ "$token" == "<<$marker>>" ]] || { msg_warn "$file: <<$marker>> must be a standalone Command token"; return 1; }
+                case "$marker" in
+                    OPTIONS) ((count_options+=1)) ;;
+                    OPTIONS2) ((count_options2+=1)) ;;
+                    OPTIONS3) ((count_options3+=1)) ;;
+                esac
+            fi
+        done
+        local reserved_pattern='<<OPTIONS[0-9]+>>'
+        if [[ "$token" =~ $reserved_pattern ]]; then
+            case "${BASH_REMATCH[0]}" in
+                '<<OPTIONS2>>'|'<<OPTIONS3>>') ;;
+                *) msg_warn "$file: unsupported reserved placeholder ${BASH_REMATCH[0]} (supported: <<OPTIONS>>, <<OPTIONS2>>, <<OPTIONS3>>)"; return 1 ;;
+            esac
+        fi
+    done
+
+    (( count_options <= 1 && count_options2 <= 1 && count_options3 <= 1 )) || {
+        msg_warn "$file: each reserved option placeholder may appear only once"
+        return 1
+    }
+
+    [[ -z "${fields[options2]+x}" || $count_options2 -eq 1 ]] || { msg_warn "$file: options2 requires <<OPTIONS2>> in Command"; return 1; }
+    [[ -z "${fields[options3]+x}" || $count_options3 -eq 1 ]] || { msg_warn "$file: options3 requires <<OPTIONS3>> in Command"; return 1; }
+    [[ $count_options -eq 0 || -n "${fields[options]+x}" ]] || { msg_warn "$file: <<OPTIONS>> requires an options: section"; return 1; }
+    [[ $count_options2 -eq 0 || -n "${fields[options2]+x}" ]] || { msg_warn "$file: <<OPTIONS2>> requires an options2: section"; return 1; }
+    [[ $count_options3 -eq 0 || -n "${fields[options3]+x}" ]] || { msg_warn "$file: <<OPTIONS3>> requires an options3: section"; return 1; }
 }
 
 external_scan() {
@@ -247,6 +365,8 @@ external_load() {
     external_category["$file"]="$parsed_category"
     external_command["$file"]="$parsed_command"
     external_options["$file"]="$parsed_options"
+    external_options2["$file"]="$parsed_options2"
+    external_options3["$file"]="$parsed_options3"
 }
 
 external_save_selection() {
@@ -262,7 +382,7 @@ external_save_selection() {
 
 external_reload() {
     local file failed=false
-    external_loaded=(); external_name=(); external_description=(); external_category=(); external_command=(); external_options=()
+    external_loaded=(); external_name=(); external_description=(); external_category=(); external_command=(); external_options=(); external_options2=(); external_options3=()
     for file in "${external_selected[@]}"; do external_load "$file" || failed=true; done
     [[ "$failed" == false ]]
 }
@@ -316,20 +436,93 @@ external_resolve_value() {
     esac
 }
 
+# Collect each unique <<PLACEHOLDER>> in first-seen order. External modules use
+# this list to offer module-local value overrides without changing global state.
+external_collect_placeholders() {
+    local text="$1" remaining name pattern='<<([A-Z_][A-Z0-9_]*)>>'
+    local -A seen=()
+    external_placeholders=()
+    remaining="$text"
+
+    while [[ "$remaining" =~ $pattern ]]; do
+        name="${BASH_REMATCH[1]}"
+        # OPTIONS markers are structural insertion points, not values the
+        # user should edit from Custom Placeholder Values.
+        if [[ "$name" != OPTIONS && "$name" != OPTIONS2 && "$name" != OPTIONS3 && -z "${seen[$name]+x}" ]]; then
+            external_placeholders+=("$name")
+            seen["$name"]=1
+        fi
+        remaining="${remaining#*"<<$name>>"}"
+    done
+}
+
+# Expand the three reserved option-placement markers in a module Command.
+# Each marker is a standalone token validated by external_parse(). The first
+# group preserves legacy behavior: if <<OPTIONS>> is absent, enabled options:
+# entries are appended to the end of the base command instead.
+external_apply_option_groups() {
+    local base="$1" group1="$2" group2="$3" group3="$4"
+    local result="$base" before after
+
+    # Split around each exact marker instead of using ${var/pattern/repl} so
+    # characters such as '&' inside quoted option values stay literal even when
+    # Bash's patsub_replacement shell option is enabled.
+    if [[ "$result" == *'<<OPTIONS>>'* ]]; then
+        before="${result%%'<<OPTIONS>>'*}"
+        after="${result#*'<<OPTIONS>>'}"
+        result="${before}${group1}${after}"
+    elif [[ -n "$group1" ]]; then
+        result+=" $group1"
+    fi
+
+    if [[ "$result" == *'<<OPTIONS2>>'* ]]; then
+        before="${result%%'<<OPTIONS2>>'*}"
+        after="${result#*'<<OPTIONS2>>'}"
+        result="${before}${group2}${after}"
+    fi
+
+    if [[ "$result" == *'<<OPTIONS3>>'* ]]; then
+        before="${result%%'<<OPTIONS3>>'*}"
+        after="${result#*'<<OPTIONS3>>'}"
+        result="${before}${group3}${after}"
+    fi
+
+    external_option_expanded="$result"
+}
+
+# Build a module command without evaluating shell syntax. The optional third
+# argument names an associative array of per-module placeholder overrides.
+# Resolution order is: module override -> Tool_Box global value -> run-time
+# prompt. PASSWORD values remain redacted from previews/history.
 external_build_command() {
-    local template="$1" mode="$2" token remaining part name value pattern='<<([A-Z_][A-Z0-9_]*)>>'
+    local template="$1" mode="$2" override_array_name="${3:-}"
+    local token remaining part name value pattern='<<([A-Z_][A-Z0-9_]*)>>'
+    local use_overrides=false
     local -A answers=()
+
+    if [[ -n "$override_array_name" ]]; then
+        local -n override_ref="$override_array_name"
+        use_overrides=true
+    fi
+
     external_tokenize "$template" || return 1
     local -a tokens=("${external_tokens[@]}")
     command=(); command_display=()
+
     for token in "${tokens[@]}"; do
         remaining="$token"; part=""
         while [[ "$remaining" =~ $pattern ]]; do
             name="${BASH_REMATCH[1]}"
             part+="${remaining%%"<<$name>>"*}"
             remaining="${remaining#*"<<$name>>"}"
+
             if [[ -n "${answers[$name]+x}" ]]; then
                 value="${answers[$name]}"
+            elif [[ "$use_overrides" == true && -n "${override_ref[$name]+x}" ]]; then
+                value="${override_ref[$name]}"
+                # Never place an entered password into the preview command.
+                [[ "$mode" == preview && "$name" == PASSWORD ]] && value="<<PASSWORD>>"
+                answers["$name"]="$value"
             else
                 external_resolve_value "$name"; value="$external_value"
                 if [[ "$mode" == preview && ( -z "$value" || "$name" == PASSWORD ) ]]; then
@@ -346,51 +539,283 @@ external_build_command() {
             fi
             part+="$value"
         done
+
         command+=("$part$remaining")
-        if [[ "$token" == *'<<PASSWORD>>'* ]]; then command_display+=('[REDACTED]'); else command_display+=("$part$remaining"); fi
+        if [[ "$token" == *'<<PASSWORD>>'* ]]; then
+            command_display+=('[REDACTED]')
+        else
+            command_display+=("$part$remaining")
+        fi
     done
 }
 
-external_module_menu() {
-    local file="$1" choice label args line template i selected_index log_name
-    local -a labels=() fragments=() enabled=()
-    local -a command_display=()
-    while IFS= read -r line; do
-        [[ -n "$line" ]] || continue
-        labels+=("${line%%$'\t'*}"); fragments+=("${line#*$'\t'}"); enabled+=(false)
-    done <<< "${external_options[$file]}"
+# Edit values only for the current external-module screen. These overrides are
+# intentionally session-local: they do not modify Set Target/Data, saved
+# profiles, or the module .txt file. Blank input clears one override.
+external_custom_values_menu() {
+    local file="$1" placeholder_text="$2" override_array_name="$3"
+    local choice i name value display_value source
+    local -n override_ref="$override_array_name"
+
     while true; do
-        header "Tool_Box - ${external_name[$file]}"
-        printf 'Description: %s\n' "${external_description[$file]}"
-        template="${external_command[$file]}"
-        if ((${#labels[@]} > 0)); then
-            echo ""
-            menu_section "Options"
-        fi
-        for ((i=0; i<${#labels[@]}; i++)); do
-            printf ' %d) %s: %s\n' "$((i+1))" "${labels[i]}" "$(toggle_status "${enabled[i]}")"
-            [[ "${enabled[i]}" == true ]] && template+=" ${fragments[i]}"
-        done
+        external_collect_placeholders "$placeholder_text"
+        header "Tool_Box - ${external_name[$file]} - Custom Values"
+        show_module_description "Override placeholders for this module only. Global Tool_Box values are not changed."
         echo ""
-        menu_section "Command Preview"
-        external_build_command "$template" preview && show_command
+        menu_section "Placeholder Values"
+
+        if ((${#external_placeholders[@]} == 0)); then
+            echo " No placeholders are used by this module."
+        else
+            for ((i=0; i<${#external_placeholders[@]}; i++)); do
+                name="${external_placeholders[i]}"
+                if [[ -n "${override_ref[$name]+x}" ]]; then
+                    value="${override_ref[$name]}"
+                    source="module override"
+                else
+                    external_resolve_value "$name"
+                    value="$external_value"
+                    if [[ -n "$value" ]]; then source="global/default"; else source="prompt on run"; fi
+                fi
+
+                if [[ "$name" == PASSWORD && -n "$value" ]]; then
+                    display_value="[REDACTED]"
+                elif [[ -n "$value" ]]; then
+                    display_value="$value"
+                else
+                    display_value="<not set>"
+                fi
+                printf ' %2d) %-10s : %s [%s]\n' "$((i+1))" "$name" "$display_value" "$source"
+            done
+        fi
+
         echo ""
         menu_section "Actions"
-        echo ' R) Run'
+        echo " X) Clear all module overrides"
         menu_prompt choice || return
+
         case "$choice" in
             0) return ;;
+            x|X)
+                override_ref=()
+                msg_success "Module placeholder overrides cleared."
+                sleep 1
+                ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#external_placeholders[@]} )); then
+                    name="${external_placeholders[choice-1]}"
+                    if [[ "$name" == PASSWORD ]]; then
+                        IFS= read -r -s -p "New value for $name (blank clears override): " value || return
+                        echo ""
+                    else
+                        IFS= read -r -p "New value for $name (blank clears override): " value || return
+                    fi
+
+                    if [[ -z "$value" ]]; then
+                        unset 'override_ref[$name]'
+                        msg_info "Module override cleared for $name."
+                    else
+                        override_ref["$name"]="$value"
+                        if [[ "$name" == PASSWORD ]]; then
+                            msg_success "Module override set for $name (value hidden)."
+                        else
+                            msg_success "Module override set for $name."
+                        fi
+                    fi
+                    sleep 1
+                else
+                    msg_warn "Invalid option"
+                    pause
+                fi
+                ;;
+        esac
+    done
+}
+
+# Keep module-specific help close to the command page so the main menu stays
+# uncluttered while users can still see how toggles, overrides and arguments work.
+external_module_help() {
+    local file="$1"
+    header "Tool_Box - ${external_name[$file]} - Module Help"
+    printf 'Module file : %s\n' "$file"
+    printf 'Category    : %s\n' "${external_category[$file]}"
+    echo ""
+    menu_section "Option Groups"
+    echo " <<OPTIONS>>  inserts enabled entries from options: at that location."
+    echo " <<OPTIONS2>> inserts enabled entries from options2: at that location."
+    echo " <<OPTIONS3>> inserts enabled entries from options3: at that location."
+    echo " If <<OPTIONS>> is omitted, options: keeps legacy append-at-end behavior."
+    echo " options2: and options3: require their matching reserved placeholders."
+    echo ""
+    menu_section "Customization"
+    echo " C) Custom Values override normal <<PLACEHOLDER>> values for this module only."
+    echo " A) Custom Arguments append extra arguments after the resolved module command."
+    echo " X) Clear Customizations removes both module-local changes."
+    echo ""
+    menu_section "Resolution Order"
+    echo " Module override -> Tool_Box global/default -> prompt when Run is selected"
+    echo ""
+    menu_section "Security / Parsing"
+    echo " Module commands and custom arguments are tokenized without shell evaluation."
+    echo " Pipes, redirection, command substitution and unquoted shell operators are not evaluated."
+    echo " <<PASSWORD>> is hidden during entry and redacted from previews/history."
+    pause
+}
+
+external_module_menu() {
+    local file="$1" choice line template placeholder_text i selected_index log_name value group
+    local reserved_custom_pattern='<<OPTIONS[0-9]+>>'
+    local custom_args="" group1_args="" group2_args="" group3_args=""
+    local -a labels=() fragments=() enabled=() groups=()
+    local -a command_display=()
+    local -A module_overrides=()
+
+    # Flatten all three option sections into one numbered list while preserving
+    # each option's group. This keeps menu selection simple and lets the screen
+    # render clear Options / Options 2 / Options 3 dividers.
+    for group in 1 2 3; do
+        case "$group" in
+            1) value="${external_options[$file]}" ;;
+            2) value="${external_options2[$file]}" ;;
+            3) value="${external_options3[$file]}" ;;
+        esac
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            labels+=("${line%%$'\t'*}")
+            fragments+=("${line#*$'\t'}")
+            enabled+=(false)
+            groups+=("$group")
+        done <<< "$value"
+    done
+
+    # Build a catalog from the base command plus every optional fragment so a
+    # normal placeholder can be overridden before its associated option is on.
+    # Reserved OPTIONS markers are filtered from the Custom Values screen.
+    placeholder_text="${external_command[$file]}"
+    for ((i=0; i<${#fragments[@]}; i++)); do placeholder_text+=" ${fragments[i]}"; done
+
+    while true; do
+        header "Tool_Box - ${external_name[$file]}"
+        show_module_description "${external_description[$file]}"
+        group1_args=""; group2_args=""; group3_args=""
+
+        # Render each group separately, but keep a single continuous number
+        # sequence across all groups so choices are unambiguous.
+        for group in 1 2 3; do
+            local group_has_items=false
+            for ((i=0; i<${#labels[@]}; i++)); do
+                [[ "${groups[i]}" == "$group" ]] && { group_has_items=true; break; }
+            done
+            [[ "$group_has_items" == true ]] || continue
+
+            echo ""
+            case "$group" in
+                1) menu_section "Options" ;;
+                2) menu_section "Options 2" ;;
+                3) menu_section "Options 3" ;;
+            esac
+            for ((i=0; i<${#labels[@]}; i++)); do
+                [[ "${groups[i]}" == "$group" ]] || continue
+                printf ' %d) %s: %s\n' "$((i+1))" "${labels[i]}" "$(toggle_status "${enabled[i]}")"
+                if [[ "${enabled[i]}" == true ]]; then
+                    case "$group" in
+                        1) group1_args+=" ${fragments[i]}" ;;
+                        2) group2_args+=" ${fragments[i]}" ;;
+                        3) group3_args+=" ${fragments[i]}" ;;
+                    esac
+                fi
+            done
+        done
+
+        # Strip the one leading separator space before inserting each group.
+        group1_args="${group1_args# }"; group2_args="${group2_args# }"; group3_args="${group3_args# }"
+        external_apply_option_groups "${external_command[$file]}" "$group1_args" "$group2_args" "$group3_args"
+        template="$external_option_expanded"
+
+        # Custom arguments remain a final, temporary append-only customization.
+        [[ -n "$custom_args" ]] && template+=" $custom_args"
+
+        echo ""
+        menu_section "Customization"
+        printf ' C) Custom Placeholder Values : %s\n' "${#module_overrides[@]} override(s)"
+        if [[ -n "$custom_args" ]]; then
+            echo " A) Custom Arguments          : SET"
+        else
+            echo " A) Custom Arguments          : none"
+        fi
+        echo " X) Clear Customizations"
+
+        echo ""
+        menu_section "Command Preview"
+        external_build_command "$template" preview module_overrides && show_command
+
+        echo ""
+        menu_section "Actions"
+        echo " R) Run"
+
+        echo ""
+        menu_section "Documentation"
+        echo " D) Module Help"
+        menu_prompt choice || return
+
+        case "$choice" in
+            0) return ;;
+            c|C)
+                external_custom_values_menu "$file" "$placeholder_text" module_overrides
+                ;;
+            a|A)
+                IFS= read -r -p "Custom arguments (blank clears): " value || return
+                if [[ -z "$value" ]]; then
+                    custom_args=""
+                    msg_info "Custom arguments cleared."
+                    sleep 1
+                elif [[ "$value" == *'<<OPTIONS>>'* || "$value" == *'<<OPTIONS2>>'* || "$value" == *'<<OPTIONS3>>'* || "$value" =~ $reserved_custom_pattern ]]; then
+                    msg_warn "Reserved OPTIONS markers are only valid in a module Command definition."
+                    pause
+                elif external_tokenize "$value"; then
+                    custom_args="$value"
+                    msg_success "Custom arguments updated."
+                    sleep 1
+                else
+                    msg_warn "Invalid custom arguments. Use normal program arguments; shell operators/evaluation are not supported."
+                    pause
+                fi
+                ;;
+            x|X)
+                module_overrides=()
+                custom_args=""
+                msg_success "Module customizations cleared."
+                sleep 1
+                ;;
+            d|D)
+                external_module_help "$file"
+                ;;
             r|R)
-                if external_build_command "$template" run; then
+                if external_build_command "$template" run module_overrides; then
                     if command -v -- "${command[0]}" >/dev/null 2>&1; then
                         log_name="${external_name[$file]//[^a-zA-Z0-9_-]/_}"
                         run_command_logged external "$log_name"
-                    else msg_warn "Executable unavailable: ${command[0]}"; pause; fi
-                else msg_warn 'Command cancelled: a value was missing.'; pause; fi ;;
+                    else
+                        msg_warn "Executable unavailable: ${command[0]}"
+                        pause
+                    fi
+                else
+                    msg_warn "Command cancelled: a value was missing."
+                    pause
+                fi
+                ;;
             *)
                 selected_index=-1
-                for ((i=0; i<${#labels[@]}; i++)); do [[ "$choice" == "$((i+1))" ]] && selected_index=$i; done
-                if ((selected_index >= 0)); then enabled[selected_index]=$(toggle_bool "${enabled[selected_index]}"); else msg_warn 'Invalid option'; pause; fi ;;
+                for ((i=0; i<${#labels[@]}; i++)); do
+                    [[ "$choice" == "$((i+1))" ]] && selected_index=$i
+                done
+                if ((selected_index >= 0)); then
+                    enabled[selected_index]=$(toggle_bool "${enabled[selected_index]}")
+                else
+                    msg_warn "Invalid option"
+                    pause
+                fi
+                ;;
         esac
     done
 }
@@ -7808,15 +8233,23 @@ about_toolbox_menu() {
         echo "Version   : $ver"
         echo "Script    : ${BASH_SOURCE[0]}"
         echo "Repository: $toolbox_repo_url"
+        echo "License   : MIT"
+        if terms_already_accepted; then
+            echo "Terms     : Accepted for Tool_Box v$ver (terms v$terms_version)"
+        else
+            echo "Terms     : Not recorded"
+        fi
         echo ""
-        echo "v0.30 adds repository documentation downloads with a user-selectable"
-        echo "download location, while retaining the v0.29 navigation improvements."
+        echo "v1.0 adds positioned external-module option groups using"
+        echo "<<OPTIONS>>, <<OPTIONS2>>, and <<OPTIONS3>>. Terms are still"
+        echo "acknowledged again for each new Tool_Box version."
         echo ""
         echo " 1) Open Repository"
         echo " 2) Copy Repository URL"
         echo " 3) Check Repository Version"
         echo " 4) Privilege Guide"
         echo " 5) Download Documentation"
+        echo " 6) View Terms / Authorized Use"
         echo ""
         menu_prompt choice
         case "$choice" in
@@ -7828,6 +8261,7 @@ about_toolbox_menu() {
             3) check_toolbox_update ;;
             4) privilege_guide_page ;;
             5) documentation_download_menu ;;
+            6) view_terms_notice ;;
             0) return ;;
             *) msg_error "Invalid option."; pause ;;
         esac
@@ -7860,6 +8294,142 @@ system_configuration_menu() {
             *) external_dispatch "$choice" "system & configuration" || { echo "Invalid option."; pause; } ;;
         esac
     done
+}
+
+# -------------------------
+# Startup splash / per-version terms acknowledgement
+# -------------------------
+startup_intro() {
+    # Keep the splash self-contained so Tool_Box does not depend on figlet,
+    # toilet, or any other optional package just to display its startup banner.
+    # The logo intentionally names Tool_Box only once to keep the intro clean.
+    refresh_colors
+    clear 2>/dev/null || true
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '              ______________________' "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '             /                      \' "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '            /________________________\' "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '       ____|__________________________|____' "${C_RESET}"
+    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.0           |' "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |-----------------------------------|' "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |   Recon | Enumerate | Analyze     |' "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |___________________________________|' "${C_RESET}"
+    printf '%b\n' "${C_DIM}          Stay curious. Stay authorized.${C_RESET}"
+    printf '\n'
+
+    # On later launches the main menu clears the screen, so leave the banner
+    # visible briefly without forcing the user through another prompt.
+    if [[ -t 1 ]]; then
+        sleep 1
+    fi
+}
+print_terms_notice() {
+    # This text is intentionally concise enough for a terminal while matching
+    # the fuller README/TERMS.md notices shipped with the project.
+    printf '%b\n' "${C_CYAN}${C_BOLD}========================================${C_RESET}"
+    printf '%b\n' "${C_BOLD} Tool_Box Terms & Authorized-Use Notice${C_RESET}"
+    printf '%b\n' "${C_CYAN}${C_BOLD}========================================${C_RESET}"
+    echo ""
+    echo "Tool_Box was developed with substantial AI assistance (vibe coded)."
+    echo "The code may contain mistakes or unexpected behavior and is provided AS-IS."
+    echo ""
+    echo "By continuing, you acknowledge that:"
+    echo "  1) You will use Tool_Box only on systems, networks, services, accounts,"
+    echo "     and data you own or are explicitly authorized to test."
+    echo "  2) You are responsible for choosing targets, commands, privileges, and"
+    echo "     third-party tools, and for complying with applicable rules and laws."
+    echo "  3) Security and administrative tools can cause outages, data loss, system"
+    echo "     changes, credential exposure, or other unintended effects."
+    echo "  4) The project is provided without warranty. To the extent permitted by"
+    echo "     applicable law, the author(s) disclaim liability for damages arising"
+    echo "     from use, misuse, or inability to use the project."
+    echo "  5) Third-party tools keep their own licenses, risks, and behavior; inclusion"
+    echo "     in Tool_Box does not imply endorsement or warranty."
+    echo ""
+    echo "Review README.md, TERMS.md, and LICENSE for the full project notices."
+    echo "This acknowledgement is not a substitute for understanding each command."
+}
+
+terms_already_accepted() {
+    # Acceptance is stored per Linux user. Require both the current terms
+    # revision and the current Tool_Box version so every new release asks again.
+    [[ -r "$terms_acceptance_file" ]] || return 1
+    grep -Fxq "terms_version=$terms_version" "$terms_acceptance_file" 2>/dev/null || return 1
+    grep -Fxq "toolbox_version=$ver" "$terms_acceptance_file" 2>/dev/null
+}
+save_terms_acceptance() {
+    local temp_file
+
+    # Use an atomic temporary file and restrictive permissions so the record is
+    # not accidentally writable by other users on a multi-user lab system.
+    temp_file=$(mktemp "${terms_acceptance_file}.XXXXXX") || return 1
+    chmod 600 "$temp_file" 2>/dev/null || true
+
+    if {
+        printf 'terms_version=%s\n' "$terms_version"
+        printf 'toolbox_version=%s\n' "$ver"
+        printf 'accepted_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    } > "$temp_file" && mv -- "$temp_file" "$terms_acceptance_file"; then
+        return 0
+    fi
+
+    rm -f -- "$temp_file"
+    return 1
+}
+
+require_terms_acceptance() {
+    local response
+
+    terms_already_accepted && return 0
+
+    clear 2>/dev/null || true
+    refresh_colors
+    print_terms_notice
+    echo ""
+    printf '%b\n' "${C_YELLOW}${C_BOLD}Acceptance is required before the main menu can load.${C_RESET}"
+    echo "This prompt appears again after upgrading to a new Tool_Box version."
+    echo ""
+
+    while true; do
+        # Keep the prompt simple. [Y/n] makes Yes the default when Enter is
+        # pressed, while an explicit n/N exits without recording acceptance.
+        printf '%b' "${C_CYAN}${C_BOLD}Accept terms and continue? [Y/n]: ${C_RESET}"
+        IFS= read -r response || return 1
+
+        case "$response" in
+            ''|y|Y|yes|YES|Yes)
+                if save_terms_acceptance; then
+                    msg_success "Terms accepted for Tool_Box v$ver. Saved for this Linux user."
+                else
+                    # Acceptance still applies to this running session; failure
+                    # to save simply means the notice will appear next launch.
+                    msg_warn "Terms accepted for this session, but the acceptance record could not be saved."
+                fi
+                echo ""
+                return 0
+                ;;
+            n|N|no|NO|No)
+                msg_info "Terms were not accepted. Tool_Box will exit."
+                return 1
+                ;;
+            *)
+                msg_warn "Please enter Y or n."
+                ;;
+        esac
+    done
+}
+view_terms_notice() {
+    # Keep the notice available after first run from About / Version.
+    header "Tool_Box - Terms & Authorized Use"
+    print_terms_notice
+    echo ""
+    if terms_already_accepted; then
+        printf 'Acceptance: %b\n' "$(status_text 'Accepted')"
+    else
+        printf 'Acceptance: %b\n' "$(status_text 'Not recorded')"
+    fi
+    printf 'Record    : %s\n' "$terms_acceptance_file"
+    echo ""
+    pause
 }
 
 # -------------------------
@@ -7931,5 +8501,11 @@ main_menu() {
 # -------------------------
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     trap 'printf "%b\n" "$C_RESET"; exit 130' INT TERM
+
+    # Show the lightweight splash on every normal launch.  The authorized-use
+    # acknowledgement is required when either the terms revision or this Tool_Box
+    # version has not already been accepted by the current Linux user.
+    startup_intro
+    require_terms_acceptance || exit 0
     main_menu
 fi
