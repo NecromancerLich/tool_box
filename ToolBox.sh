@@ -10,14 +10,14 @@
 # -------------------------
 # Global configuration
 # -------------------------
-ver="1.02"
+ver="1.03"
 ip="127.0.0.1"
 subnet=32
 port="4444"
 output_folder="./results"
 config_file="$HOME/.tool_box.conf"
 
-# v1.02 startup acknowledgement. Acceptance is recorded for both the terms
+# v1.03 startup acknowledgement. Acceptance is recorded for both the terms
 # revision and the Tool_Box release, so each new Tool_Box version asks again.
 terms_version="1"
 terms_acceptance_file="$HOME/.tool_box_terms.conf"
@@ -410,18 +410,28 @@ external_restore() {
 
 external_render() {
     local category="$1" file index=0
+
+    # External selectors are local to the menu currently being rendered. This
+    # means every menu/submenu starts its external-module list at E1 instead of
+    # inheriting numbers from modules loaded into unrelated categories.
     for file in "${external_loaded[@]}"; do
+        [[ "${external_category[$file]}" == "$category" ]] || continue
         ((index+=1))
-        [[ "${external_category[$file]}" == "$category" ]] && printf ' E%d) %s [external]\n' "$index" "${external_name[$file]}"
+        printf ' E%d) %s [external]\n' "$index" "${external_name[$file]}"
     done
     return 0
 }
 
 external_dispatch() {
     local choice="$1" category="$2" file index=0
+
+    # Dispatch uses the same category-local numbering as external_render().
+    # Increment only for modules visible on this screen so E1 always selects
+    # the first external module shown in the current menu/submenu.
     for file in "${external_loaded[@]}"; do
+        [[ "${external_category[$file]}" == "$category" ]] || continue
         ((index+=1))
-        if [[ "${choice^^}" == "E$index" && "${external_category[$file]}" == "$category" ]]; then
+        if [[ "${choice^^}" == "E$index" ]]; then
             external_module_menu "$file"
             return 0
         fi
@@ -8592,7 +8602,7 @@ startup_intro() {
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '             /                      \' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '            /________________________\' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '       ____|__________________________|____' "${C_RESET}"
-    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.02          |' "${C_RESET}"
+    printf '%b%s%b\n' "${C_MAGENTA}${C_BOLD}" '      |          TOOL_BOX  v1.03          |' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |-----------------------------------|' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |   Recon | Enumerate | Analyze     |' "${C_RESET}"
     printf '%b%s%b\n' "${C_CYAN}${C_BOLD}" '      |___________________________________|' "${C_RESET}"
