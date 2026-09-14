@@ -1,0 +1,9 @@
+Name: Hydra_HTTPS
+Description: Hydra is a powerful tool used for performing brute-force attacks on various network services, including HTTPS.
+Category: Pass/Hash Cracking
+Command: hydra -l <<USERNAME>> -P <<WORDLIST>> <<OPTIONS>> <<URL>> <<OPTIONS2>>
+options:
+	Port: -s <<PORT>>
+
+options2:
+	Stop on success: -f
