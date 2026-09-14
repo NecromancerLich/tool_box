@@ -1,0 +1,9 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/kismet/
+# Requires Kismet capture permissions and supported hardware.
+# Reads installed Kismet configuration, starts its configured web listener, and writes configured logs. Ctrl+C stops it.
+# Use Toolbox Dry-Run before execution.
+Name: Kismet_Wireless_Capture
+Description: Start Kismet with one capture interface; use its configured web interface to inspect devices.
+Category: Traffic Analysis
+Command: kismet -c "<<INTERFACE>>"

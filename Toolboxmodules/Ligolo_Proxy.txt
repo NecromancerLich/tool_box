@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/ligolo-ng/
+# Ongoing listener. Disable Auto-Save for console use. Select a reachable LISTEN_HOST explicitly.
+# Agent connection, TUN interface and route configuration are separate prerequisites/console steps; see Ligolo docs.
+# Use Toolbox Dry-Run before execution.
+Name: Ligolo_Proxy
+Description: Start the Ligolo proxy console on an explicit listening address with a generated self-signed certificate.
+Category: Shell / Session Tools
+Command: ligolo-proxy -laddr "<<LISTEN_HOST>>:<<LISTEN_PORT>>" -selfcert <<OPTIONS>>
+
+options:
+    Verbose output: -v

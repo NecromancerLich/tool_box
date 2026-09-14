@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/wpscan/
+# Passive detection still requests web pages. Vulnerability data needs a configured WPScan API token; do not hard-code it here.
+# Use Toolbox Dry-Run before execution.
+Name: WPScan_WordPress_Inventory
+Description: Inspect WordPress with passive detection and 500ms request throttling.
+Category: Vulnerability Assessment
+Command: wpscan --url "<<URL>>" --detection-mode passive --plugins-detection passive --throttle 500 <<OPTIONS>>
+
+options:
+    Enumerate popular plugins and themes: --enumerate p,t
+    Write JSON report: --format json --output "<<OUTPUT_FILE>>"

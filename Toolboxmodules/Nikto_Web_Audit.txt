@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/nikto/
+# TUNING uses Nikto category codes; inspect nikto -Help. Report parent directory must exist.
+# Use Toolbox Dry-Run before execution.
+Name: Nikto_Web_Audit
+Description: Run a web-server audit with a one-second pause and ten-minute maximum runtime.
+Category: Vulnerability Assessment
+Command: nikto -host "<<URL>>" -Pause 1 -maxtime 10m -ask no -nointeractive <<OPTIONS>>
+
+options:
+    Write HTML report: -Format htm -output "<<OUTPUT_FILE>>"
+    Choose tuning categories: -Tuning "<<TUNING>>"

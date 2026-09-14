@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/OJ/gobuster
+# WORDLIST contains subdomain labels. DNS_RESOLVER example: 192.0.2.53:53.
+# Use Toolbox Dry-Run before execution.
+Name: Gobuster_DNS
+Description: Resolve wordlist subdomains within one domain using five workers.
+Category: Network / DNS
+Command: gobuster dns --domain "<<DOMAIN>>" -w "<<WORDLIST>>" -t 5 <<OPTIONS>>
+
+options:
+    Custom resolver host and port: -r "<<DNS_RESOLVER>>"
+    Write results: -o "<<OUTPUT_FILE>>"

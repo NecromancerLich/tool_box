@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/gentilkiwi/mimikatz/tree/master/mimikatz/modules
+# Requires the included helper, a Windows SSH host, and the named executable installed on Windows.
+# WINDOWS_EXE is an absolute Windows path. No binaries are installed or uploaded.
+# SSH uses normal host-key checks and SSH authentication; see README for prerequisites.
+# This module reports identity; it does not dump credentials.
+# Use Toolbox Dry-Run before execution.
+Name: Mimikatz_Identity_Windows
+Description: Run Mimikatz version and current-token identity commands on a Windows SSH host, then exit.
+Category: SMB / Windows
+Command: python3 "<<PACK_HELPER>>" windows --host "<<WINDOWS_HOST>>" --user "<<SSH_USER>>" --exe "<<WINDOWS_EXE>>" --tool mimikatz <<OPTIONS>>
+
+options:
+    Preview remote invocation only: --preview

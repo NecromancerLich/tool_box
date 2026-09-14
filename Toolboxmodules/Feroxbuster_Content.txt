@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/feroxbuster/
+# EXTENSIONS is comma-separated. Confirm extracted links and recursion stay in your desired URL scope.
+# Use Toolbox Dry-Run before execution.
+Name: Feroxbuster_Content
+Description: Discover content with recursion depth two, five workers, one active scan, and ten requests per second per directory.
+Category: Web Enumeration
+Command: feroxbuster -u "<<URL>>" -w "<<WORDLIST>>" -t 5 --scan-limit 1 --rate-limit 10 -d 2 <<OPTIONS>>
+
+options:
+    Disable recursion: --no-recursion
+    Try extensions: -x "<<EXTENSIONS>>"
+    Write JSON report: --json -o "<<OUTPUT_FILE>>"

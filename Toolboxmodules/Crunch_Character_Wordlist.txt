@@ -1,0 +1,9 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/crunch/
+# Use small lengths first; output grows exponentially. Example: min 2, max 3, charset abc.
+# MIN_LENGTH and MAX_LENGTH are positive integers, with minimum no greater than maximum.
+# Use Toolbox Dry-Run before execution.
+Name: Crunch_Character_Wordlist
+Description: Generate combinations from an explicit character set and length bounds into a local file.
+Category: Payloads / Wordlists / Cheatsheets
+Command: crunch <<MIN_LENGTH>> <<MAX_LENGTH>> "<<CHARSET>>" -o "<<OUTPUT_FILE>>"

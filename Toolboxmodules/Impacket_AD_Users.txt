@@ -1,0 +1,16 @@
+# Dependency: GetADUsers.py in PATH (Kali commonly uses impacket-GetADUsers).
+# If needed, change only the executable at the start of Command.
+# Source: https://github.com/fortra/impacket/blob/master/examples/GetADUsers.py
+# IP must be a single domain controller IP; DOMAIN must be the AD DNS domain.
+# Use a single username. PASSWORD uses Toolbox's protected placeholder.
+# With toggles OFF, lists enabled users with email addresses.
+# Verify with Dry-Run and GetADUsers.py -h before use.
+Name: Impacket_AD_Users
+Description: Query AD user names, email addresses, last logon, and password-set times using supplied domain credentials.
+Category: SMB / Windows
+Command: GetADUsers.py "<<DOMAIN>>/<<USERNAME>>:<<PASSWORD>>" -dc-ip <<IP>> <<OPTIONS>>
+options:
+    Include disabled users and users without email: -all
+    Filter by account name: -user "<<ACCOUNT_NAME>>"
+    Specify domain controller hostname: -dc-host "<<DC_HOST>>"
+    Timestamp log messages: -ts

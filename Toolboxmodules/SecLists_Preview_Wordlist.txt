@@ -1,0 +1,8 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/seclists/
+# Set WORDLIST to a file found under /usr/share/seclists. This does not change Toolbox defaults.
+# Use Toolbox Dry-Run before execution.
+Name: SecLists_Preview_Wordlist
+Description: Preview the first 40 lines of the chosen local wordlist.
+Category: Payloads / Wordlists / Cheatsheets
+Command: head -n 40 -- "<<WORDLIST>>"

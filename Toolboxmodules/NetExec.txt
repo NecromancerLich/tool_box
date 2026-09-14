@@ -1,0 +1,37 @@
+# Requires NetExec (nxc) in PATH. Check installed flags with: nxc smb --help
+# Based on https://gist.github.com/strikoder/99635df00444bbf5fc90ca83ec8051a0
+# SMB flags checked against NetExec's upstream SMB argument definitions.
+# With all toggles OFF, reports basic SMB host information.
+# Choose at most ONE authentication option in options:.
+# Use single account values for USERNAME and PASSWORD, not credential files.
+# Set IP to a host/IP or CIDR target; use C for a module-local override.
+# Enumeration permissions depend on the target and supplied account.
+# PORT must be one integer for this module, not a list or range.
+# Test the resolved command with Toolbox Dry-Run before running.
+
+Name: NXC_SMB_Enumeration
+Description: Discover SMB host details and optionally enumerate shares, accounts, groups, sessions, and password policy. Choose only one authentication toggle; enumeration may require credentials.
+Category: SMB / Windows
+Command: nxc smb <<IP>> <<OPTIONS>> <<OPTIONS2>> <<OPTIONS3>>
+
+options:
+    Username and password: -u "<<USERNAME>>" -p "<<PASSWORD>>"
+    Domain username and password: -u "<<USERNAME>>" -p "<<PASSWORD>>" -d "<<DOMAIN>>"
+    Local username and password: -u "<<USERNAME>>" -p "<<PASSWORD>>" --local-auth
+
+options2:
+    List shares: --shares
+    List domain users: --users
+    List domain groups: --groups
+    List local groups: --local-groups
+    List computer accounts: --computers
+    Show password policy: --pass-pol
+    List SMB sessions: --smb-sessions
+    List disks: --disks
+    List network interfaces: --interfaces
+    List logged-on users: --loggedon-users
+
+options3:
+    Custom SMB port (single number): --port <<PORT>>
+    SMB timeout in seconds: --smb-timeout <<SMB_TIMEOUT>>
+    Export domain users to file: --users-export "<<OUTPUT_FILE>>"

@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/projectdiscovery/nuclei#command-line-flags
+# TEMPLATE_PATH must select reviewed installed templates. Severity is a comma-separated list.
+# Out-of-band Interactsh tests are disabled by -ni. Templates determine scan behavior.
+# Use Toolbox Dry-Run before execution.
+Name: Nuclei_Selected_Templates
+Description: Scan one URL using an explicitly selected local template file or directory; 10 requests per second.
+Category: Vulnerability Assessment
+Command: nuclei -u "<<URL>>" -t "<<TEMPLATE_PATH>>" -rl 10 -c 2 -ni <<OPTIONS>>
+
+options:
+    Filter severity: -severity "<<SEVERITY>>"
+    Write JSONL findings: -jsonl-export "<<OUTPUT_FILE>>"
+    Show scan statistics: -stats

@@ -1,0 +1,9 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/wifite/
+# Offline capture check; no radio interface is required.
+# Wifite may require root and installed validation dependencies even in check mode.
+# Use Toolbox Dry-Run before execution.
+Name: Wifite_Check_Capture
+Description: Check an existing wireless capture for WPA handshakes using Wifite validation tools.
+Category: Traffic Analysis
+Command: wifite --check "<<CAPTURE_FILE>>"

@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/smbmap/
+# IP is one host; PORT is one integer. Write-access checking stays disabled.
+# Use Toolbox Dry-Run before execution.
+Name: SMBMap_Share_Inventory
+Description: List SMB shares with supplied credentials while disabling write-access test files.
+Category: SMB / Windows
+Command: smbmap -H "<<IP>>" -u "<<USERNAME>>" -p "<<PASSWORD>>" --no-write-check <<OPTIONS>>
+
+options:
+    Authentication domain: -d "<<DOMAIN>>"
+    Custom SMB port: -P <<PORT>>
+    Write CSV report: --csv "<<OUTPUT_FILE>>"

@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/ly4k/Certipy/blob/main/certipy/commands/parsers/find.py
+# Requires Kali certipy-ad, not the unrelated certipy package.
+# USERNAME is the account name without an @domain suffix. DC-only excludes CA host detail queries.
+# Use Toolbox Dry-Run before execution.
+Name: Certipy_ADCS_Inventory
+Description: Enumerate AD certificate services and templates using DC-only queries; print findings to the terminal.
+Category: SMB / Windows
+Command: certipy-ad find -u "<<USERNAME>>@<<DOMAIN>>" -p "<<PASSWORD>>" -dc-ip <<IP>> -dc-only -stdout <<OPTIONS>>
+
+options:
+    Only enabled templates: -enabled
+    Only potentially vulnerable templates: -vulnerable

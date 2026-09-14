@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/jpillora/chisel
+# SERVER_URL points to an existing Chisel server. DEST_HOST is resolved/reached from that server.
+# LOCAL_PORT binds only to 127.0.0.1. IPv4/hostnames only in the composed forwarding address.
+# Use Toolbox Dry-Run before execution.
+Name: Chisel_TCP_Client
+Description: Forward one localhost TCP port through an authenticated Chisel server with fingerprint verification.
+Category: Shell / Session Tools
+Command: chisel client --auth "<<USERNAME>>:<<PASSWORD>>" --fingerprint "<<SERVER_FINGERPRINT>>" <<OPTIONS>> "<<SERVER_URL>>" "127.0.0.1:<<LOCAL_PORT>>:<<DEST_HOST>>:<<DEST_PORT>>"
+
+options:
+    Verbose output: -v

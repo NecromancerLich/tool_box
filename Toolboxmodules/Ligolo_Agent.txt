@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/ligolo-ng/
+# Runs on this Kali host; copy/use on a different host only if that is where the agent should execute.
+# CERT_FINGERPRINT is the proxy certificate SHA256 hex fingerprint. Connection does not configure routes.
+# Use Toolbox Dry-Run before execution.
+Name: Ligolo_Agent
+Description: Connect the local Ligolo agent to a proxy and verify its supplied certificate fingerprint.
+Category: Shell / Session Tools
+Command: ligolo-agent -connect "<<PROXY_HOST>>:<<PROXY_PORT>>" -accept-fingerprint "<<CERT_FINGERPRINT>>" <<OPTIONS>>
+
+options:
+    Verbose output: -v

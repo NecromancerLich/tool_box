@@ -1,0 +1,12 @@
+# Dependency: rpcdump.py in PATH (Kali commonly uses impacket-rpcdump).
+# Source: https://github.com/fortra/impacket/blob/master/examples/rpcdump.py
+# IP must be one host, not a CIDR range. Default transport is TCP 135.
+# This module uses the unauthenticated TCP endpoint mapper transport.
+# Verify with Dry-Run and rpcdump.py -h before use.
+Name: Impacket_RPC_Endpoints
+Description: List RPC endpoint UUIDs, bindings, and known providers on one host through the TCP endpoint mapper.
+Category: Service Enumeration
+Command: rpcdump.py <<IP>> <<OPTIONS>>
+options:
+    Use RPC over HTTP port 593: -port 593
+    Timestamp log messages: -ts

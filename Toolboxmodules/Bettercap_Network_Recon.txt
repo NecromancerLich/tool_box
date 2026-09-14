@@ -1,0 +1,9 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.bettercap.org/modules/ethernet/netrecon/
+# Requires privileges. Disable Toolbox Auto-Save for the interactive console.
+# Type net.show to inspect hosts and quit to exit.
+# Use Toolbox Dry-Run before execution.
+Name: Bettercap_Network_Recon
+Description: Open Bettercap with network-table reconnaissance enabled; enter net.show to view discovered hosts.
+Category: Traffic Analysis
+Command: bettercap -iface "<<INTERFACE>>" -autostart events.stream,net.recon -no-colors

@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/reaver/
+# Requires capture privileges and a monitor-mode interface; survey mode is explicit.
+# Ctrl+C stops observation.
+# Use Toolbox Dry-Run before execution.
+Name: Reaver_Wash_Survey
+Description: Survey WPS advertisements with the wash utility bundled with Reaver.
+Category: Traffic Analysis
+Command: wash -i "<<INTERFACE>>" -u <<OPTIONS>>
+
+options:
+    Lock to channel: -c <<CHANNEL>>
+    Write packet capture: -O "<<OUTPUT_FILE>>"
+    JSON output: -j

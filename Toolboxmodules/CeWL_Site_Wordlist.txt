@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/cewl/
+# The offsite crawling option is not enabled. OUTPUT_FILE is the generated wordlist.
+# Use Toolbox Dry-Run before execution.
+Name: CeWL_Site_Wordlist
+Description: Build a wordlist from one website using crawl depth two and words of at least five characters.
+Category: Payloads / Wordlists / Cheatsheets
+Command: cewl -d 2 -m 5 -w "<<OUTPUT_FILE>>" <<OPTIONS>> "<<URL>>"
+
+options:
+    Lowercase words: --lowercase
+    Include words containing numbers: --with-numbers

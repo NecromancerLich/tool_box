@@ -1,0 +1,11 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/socat/
+# Use one host and numeric port. Disable Toolbox Auto-Save for interactive input.
+# Use Toolbox Dry-Run before execution.
+Name: Socat_TCP_Client
+Description: Connect the terminal to one TCP service with a 30-second inactivity timeout.
+Category: Shell / Session Tools
+Command: socat -T 30 <<OPTIONS>> STDIO "TCP:<<IP>>:<<PORT>>"
+
+options:
+    Connection diagnostics: -d -d

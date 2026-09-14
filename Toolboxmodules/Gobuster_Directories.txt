@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/OJ/gobuster
+# EXTENSIONS is comma-separated, such as php,html,txt.
+# Use Toolbox Dry-Run before execution.
+Name: Gobuster_Directories
+Description: Discover directories and files under one URL with five threads and a per-thread request delay.
+Category: Web Enumeration
+Command: gobuster dir -u "<<URL>>" -w "<<WORDLIST>>" -t 5 --delay 500ms <<OPTIONS>>
+
+options:
+    Try file extensions: -x "<<EXTENSIONS>>"
+    Include response length: -l
+    Write results: -o "<<OUTPUT_FILE>>"

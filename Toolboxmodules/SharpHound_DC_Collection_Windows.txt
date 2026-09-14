@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://bloodhound.specterops.io/collect-data/ce-collection/sharphound-flags
+# Requires the included helper, a Windows SSH host, and the named executable installed on Windows.
+# WINDOWS_EXE is an absolute Windows path. No binaries are installed or uploaded.
+# SSH uses normal host-key checks and SSH authentication; see README for prerequisites.
+# Windows session must have AD access. SSH login alone does not guarantee network credentials.
+# Use Toolbox Dry-Run before execution.
+Name: SharpHound_DC_Collection_Windows
+Description: Run SharpHound DCOnly collection on a Windows SSH host; results remain in WINDOWS_OUTPUT on that host.
+Category: SMB / Windows
+Command: python3 "<<PACK_HELPER>>" windows --host "<<WINDOWS_HOST>>" --user "<<SSH_USER>>" --exe "<<WINDOWS_EXE>>" --tool sharphound --domain "<<DOMAIN>>" --output "<<WINDOWS_OUTPUT>>" <<OPTIONS>>
+
+options:
+    Preview remote invocation only: --preview

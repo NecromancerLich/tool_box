@@ -1,0 +1,9 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/seclists/
+# Requires the Kali seclists data package. Example FILENAME_PATTERN: *common*.
+# Matching is performed by find; no shell glob expansion is needed.
+# Use Toolbox Dry-Run before execution.
+Name: SecLists_Find_Wordlists
+Description: Find installed SecLists wordlist files by a case-insensitive filename pattern.
+Category: Payloads / Wordlists / Cheatsheets
+Command: find /usr/share/seclists -type f -iname "<<FILENAME_PATTERN>>"

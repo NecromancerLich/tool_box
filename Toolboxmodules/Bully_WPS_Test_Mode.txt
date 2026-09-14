@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/bully/
+# Requires monitor-mode interface and root. Test mode is fixed in the command.
+# This module exercises test mode; it does not perform WPS PIN recovery.
+# Use Toolbox Dry-Run before execution.
+Name: Bully_WPS_Test_Mode
+Description: Run Bully test mode for one BSSID without packet injection.
+Category: Vulnerability Assessment
+Command: bully -T -b "<<BSSID>>" <<OPTIONS>> "<<INTERFACE>>"
+
+options:
+    Target channel: -c <<CHANNEL>>
+    Write diagnostic log: -o "<<OUTPUT_FILE>>"

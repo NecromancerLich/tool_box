@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/wfuzz/
+# URL must contain a literal FUZZ token, for example https://host.example/FUZZ.
+# Use Toolbox Dry-Run before execution.
+Name: Wfuzz_URL_Fuzzing
+Description: Fuzz one URL position from a wordlist with two workers and a half-second request delay.
+Category: Web Enumeration
+Command: wfuzz -w "<<WORDLIST>>" -t 2 -s 0.5 <<OPTIONS>> "<<URL>>"
+
+options:
+    Hide HTTP status codes: --hc "<<HIDE_CODES>>"
+    Hide response character counts: --hh "<<HIDE_SIZES>>"
+    Preview requests without sending: --dry-run
+    Save reusable results: --oF "<<OUTPUT_FILE>>"

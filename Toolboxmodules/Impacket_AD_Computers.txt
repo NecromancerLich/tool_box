@@ -1,0 +1,14 @@
+# Dependency: GetADComputers.py in PATH (Kali commonly uses impacket-GetADComputers).
+# If needed, change only the executable at the start of Command.
+# Source: https://github.com/fortra/impacket/blob/master/examples/GetADComputers.py
+# IP must be a single domain controller IP; DOMAIN must be the AD DNS domain.
+# Resolve IP addresses queries DNS on that domain controller.
+# Verify with Dry-Run and GetADComputers.py -h before use.
+Name: Impacket_AD_Computers
+Description: List AD computer accounts, DNS hostnames, and operating system details, with optional DNS resolution.
+Category: SMB / Windows
+Command: GetADComputers.py "<<DOMAIN>>/<<USERNAME>>:<<PASSWORD>>" -dc-ip <<IP>> <<OPTIONS>>
+options:
+    Resolve computer IP addresses through DC DNS: -resolveIP
+    Specify domain controller hostname: -dc-host "<<DC_HOST>>"
+    Timestamp log messages: -ts

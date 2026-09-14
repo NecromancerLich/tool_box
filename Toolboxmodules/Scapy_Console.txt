@@ -1,0 +1,9 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/scapy/
+# Interactive Python console. Disable Toolbox Auto-Save. Exit with exit().
+# Packet capture/transmission requires the relevant privileges.
+# Use Toolbox Dry-Run before execution.
+Name: Scapy_Console
+Description: Open the Scapy Python console without loading user startup files.
+Category: Traffic Analysis
+Command: scapy -C -P

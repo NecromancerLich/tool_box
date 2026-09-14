@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/responder/
+# Requires capture/listener privileges and an appropriate interface.
+# Analyze mode is fixed in the base command. Ctrl+C stops observation.
+# Use Toolbox Dry-Run before execution.
+Name: Responder_Analyze
+Description: Observe name-resolution requests in analyze mode without enabling poisoning; runs until stopped.
+Category: Traffic Analysis
+Command: responder -I "<<INTERFACE>>" -A <<OPTIONS>>
+
+options:
+    Verbose observations: -v

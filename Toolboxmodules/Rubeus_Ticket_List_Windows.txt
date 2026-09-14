@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/GhostPack/Rubeus#klist
+# Requires the included helper, a Windows SSH host, and the named executable installed on Windows.
+# WINDOWS_EXE is an absolute Windows path. No binaries are installed or uploaded.
+# SSH uses normal host-key checks and SSH authentication; see README for prerequisites.
+# Lists the execution session tickets; it may be empty for an SSH-created session.
+# Use Toolbox Dry-Run before execution.
+Name: Rubeus_Ticket_List_Windows
+Description: List Kerberos ticket metadata with Rubeus klist on a Windows SSH host.
+Category: SMB / Windows
+Command: python3 "<<PACK_HELPER>>" windows --host "<<WINDOWS_HOST>>" --user "<<SSH_USER>>" --exe "<<WINDOWS_EXE>>" --tool rubeus <<OPTIONS>>
+
+options:
+    Preview remote invocation only: --preview

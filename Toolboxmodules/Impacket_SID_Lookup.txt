@@ -1,0 +1,17 @@
+# Dependency: lookupsid.py in PATH (Kali commonly uses impacket-lookupsid).
+# Source: https://github.com/fortra/impacket/blob/master/examples/lookupsid.py
+# IP must be one host. DOMAIN is the authentication domain or local computer name.
+# Default RID upper bound is 4000 (exclusive); custom MAX_RID must be positive.
+# This enumerates account identifiers through RPC; it does not guess passwords.
+# Domain SID mode may forward lookup requests to a domain controller.
+# Verify with Dry-Run and lookupsid.py -h before use.
+Name: Impacket_SID_Lookup
+Description: Resolve account and group names by enumerating RIDs over SMB using supplied credentials; defaults to RIDs below 4000.
+Category: SMB / Windows
+Command: lookupsid.py "<<DOMAIN>>/<<USERNAME>>:<<PASSWORD>>@<<IP>>" <<OPTIONS>> <<OPTIONS2>>
+options:
+    Custom RID upper bound: <<MAX_RID>>
+options2:
+    Query primary domain SID: -domain-sids
+    Use SMB port 139 instead of 445: -port 139
+    Timestamp log messages: -ts

@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/jpillora/chisel
+# Ongoing listener. Use the printed server fingerprint in the client.
+# Authentication values use username:password syntax; choose a username without colons.
+# Use Toolbox Dry-Run before execution.
+Name: Chisel_Server
+Description: Start an authenticated Chisel listener on an explicit address for forward TCP tunnels.
+Category: Shell / Session Tools
+Command: chisel server --host "<<LISTEN_HOST>>" --port <<LISTEN_PORT>> --auth "<<USERNAME>>:<<PASSWORD>>" <<OPTIONS>>
+
+options:
+    Enable SOCKS5 service: --socks5
+    Verbose output: -v

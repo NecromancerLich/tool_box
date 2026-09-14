@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.aircrack-ng.org/doku.php?id=aircrack-ng
+# CAPTURE_FILE must contain a suitable handshake. BSSID is an AP MAC address.
+# Tool output may display a recovered key.
+# Use Toolbox Dry-Run before execution.
+Name: Aircrack_Offline_WPA
+Description: Test a local WPA/WPA2 capture against a wordlist for one BSSID; no radio traffic is sent.
+Category: Pass/Hash Cracking
+Command: aircrack-ng -a 2 -b "<<BSSID>>" -w "<<WORDLIST>>" "<<CAPTURE_FILE>>" <<OPTIONS>>
+
+options:
+    Specify hidden network ESSID: -e "<<ESSID>>"

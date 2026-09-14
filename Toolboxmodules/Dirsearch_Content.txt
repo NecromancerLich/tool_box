@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/dirsearch/
+# EXTENSIONS and HIDE_CODES are comma-separated. Existing dirsearch config may also affect behavior.
+# Use Toolbox Dry-Run before execution.
+Name: Dirsearch_Content
+Description: Discover paths under one URL with five threads and a ten-request-per-second limit.
+Category: Web Enumeration
+Command: dirsearch -u "<<URL>>" -w "<<WORDLIST>>" -t 5 --max-rate 10 <<OPTIONS>>
+
+options:
+    Try extensions on every word: -e "<<EXTENSIONS>>" -f
+    Recurse two levels: -r -R 2
+    Exclude status codes: -x "<<HIDE_CODES>>"
+    Write JSON report: --format json -o "<<OUTPUT_FILE>>"

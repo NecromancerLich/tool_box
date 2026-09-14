@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/socat/
+# Local-only listener. DEST_HOST and port are reached from this Kali host.
+# Use hostnames or IPv4 values without commas; composed socat addresses interpret commas as options.
+# Use Toolbox Dry-Run before execution.
+Name: Socat_Local_TCP_Forward
+Description: Forward a TCP port bound to localhost to one destination; remains active until stopped.
+Category: Shell / Session Tools
+Command: socat <<OPTIONS>> "TCP-LISTEN:<<LOCAL_PORT>>,bind=127.0.0.1,reuseaddr,fork" "TCP:<<DEST_HOST>>:<<DEST_PORT>>"
+
+options:
+    Connection diagnostics: -d -d

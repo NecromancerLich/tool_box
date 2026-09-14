@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.exploit-db.com/searchsploit
+# SEARCH_TERM is one phrase. Do not enable exact and title together; choose the desired search style.
+# Use Toolbox Dry-Run before execution.
+Name: SearchSploit_Local_Search
+Description: Search the local Exploit-DB index for one phrase without executing a result.
+Category: Recon / Vulnerabilities
+Command: searchsploit "<<SEARCH_TERM>>" <<OPTIONS>>
+
+options:
+    Match exact title phrase: --exact
+    Search titles only: --title
+    JSON output: --json
+    Show web links: --www

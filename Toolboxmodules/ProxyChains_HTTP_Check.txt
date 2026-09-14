@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/proxychains-ng/
+# Requires proxychains4 and a dynamically linked curl executable.
+# Configure proxy_dns and your actual proxy chain in PROXYCHAINS_CONFIG; TCP only.
+# Use Toolbox Dry-Run before execution.
+Name: ProxyChains_HTTP_Check
+Description: Request HTTP response headers through a supplied ProxyChains configuration.
+Category: Network / DNS
+Command: proxychains4 -f "<<PROXYCHAINS_CONFIG>>" <<OPTIONS>> curl --head --max-time 30 "<<URL>>"
+
+options:
+    Quiet ProxyChains diagnostics: -q

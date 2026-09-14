@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/ffuf/ffuf
+# WORDLIST contains labels, such as dev, not complete domain names.
+# URL selects the server and HTTPS SNI; changing Host does not change SNI.
+# Use Toolbox Dry-Run before execution.
+Name: FFUF_Virtual_Hosts
+Description: Test subdomain labels in HTTP Host headers against one URL; review wildcard responses.
+Category: Web Enumeration
+Command: ffuf -u "<<URL>>" -H "Host: FUZZ.<<DOMAIN>>" -w "<<WORDLIST>>" -t 5 -rate 10 -noninteractive <<OPTIONS>>
+
+options:
+    Calibrate response filters: -ac
+    Hide response sizes: -fs "<<HIDE_SIZES>>"
+    Write JSON report: -of json -o "<<OUTPUT_FILE>>"

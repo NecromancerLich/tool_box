@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/aircrack-ng/
+# Requires capture privileges and an existing monitor-mode interface.
+# Writes capture files using OUTPUT_PREFIX; does not enable monitor mode or send deauthentication packets.
+# Use Toolbox Dry-Run before execution.
+Name: Airodump_Channel_Capture
+Description: Capture wireless traffic on one channel using an existing monitor-mode interface; Ctrl+C stops capture.
+Category: Traffic Analysis
+Command: airodump-ng -c <<CHANNEL>> -w "<<OUTPUT_PREFIX>>" <<OPTIONS>> "<<INTERFACE>>"
+
+options:
+    Restrict to one BSSID: --bssid "<<BSSID>>"

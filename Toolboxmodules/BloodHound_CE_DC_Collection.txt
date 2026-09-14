@@ -1,0 +1,15 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/bloodhound-ce-python/
+# IP is the AD DNS server; DC_HOST is a hostname, not an IP. DOMAIN is the AD DNS domain.
+# CE collector output is for BloodHound CE, not legacy BloodHound.
+# Use Toolbox Dry-Run before execution.
+Name: BloodHound_CE_DC_Collection
+Description: Collect domain-controller data for BloodHound CE and create a ZIP in the current directory.
+Category: SMB / Windows
+Command: bloodhound-ce-python -u "<<USERNAME>>" -p "<<PASSWORD>>" -d "<<DOMAIN>>" -ns <<IP>> -c DCOnly --zip <<OPTIONS>>
+
+options:
+    Specify DC hostname: -dc "<<DC_HOST>>"
+    Use TCP DNS: --dns-tcp
+    Use LDAPS: --use-ldaps
+    Output filename prefix: -op "<<OUTPUT_PREFIX>>"

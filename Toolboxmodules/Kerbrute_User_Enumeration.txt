@@ -1,0 +1,12 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/ropnop/kerbrute
+# Requires ropnop Kerbrute Go binary named kerbrute in PATH.
+# USERLIST contains account names. This is user enumeration, not password spraying.
+# Use Toolbox Dry-Run before execution.
+Name: Kerbrute_User_Enumeration
+Description: Check domain usernames through Kerberos using a 500ms delay and stop-on-lockout mode.
+Category: SMB / Windows
+Command: kerbrute userenum -d "<<DOMAIN>>" --dc <<IP>> --delay 500 --safe "<<USERLIST>>" <<OPTIONS>>
+
+options:
+    Write results: -o "<<OUTPUT_FILE>>"

@@ -1,0 +1,14 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/ffuf/ffuf
+# Set URL to a template such as https://host.example/FUZZ. FUZZ is an ffuf keyword, not a Toolbox placeholder.
+# Use Toolbox Dry-Run before execution.
+Name: FFUF_URL_Fuzzing
+Description: Discover URL paths or parameter values using a wordlist and one literal FUZZ position in URL.
+Category: Web Enumeration
+Command: ffuf -u "<<URL>>" -w "<<WORDLIST>>" -t 5 -rate 10 -noninteractive <<OPTIONS>>
+
+options:
+    Calibrate response filters: -ac
+    Hide status codes: -fc "<<HIDE_CODES>>"
+    Hide response sizes: -fs "<<HIDE_SIZES>>"
+    Write JSON report: -of json -o "<<OUTPUT_FILE>>"

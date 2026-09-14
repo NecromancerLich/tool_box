@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://www.kali.org/tools/reaver/
+# Use a module-local PASSWORD override for the WPS PIN. Requires monitor-mode hardware and privileges.
+# This sends WPS authentication traffic and can return the Wi-Fi key. Protocol retransmissions are possible.
+# Use Toolbox Dry-Run before execution.
+Name: Reaver_Known_PIN_Check
+Description: Test one supplied WPS PIN against one BSSID, with at most one PIN attempt.
+Category: Vulnerability Assessment
+Command: reaver -i "<<INTERFACE>>" -b "<<BSSID>>" -p "<<PASSWORD>>" -g 1 <<OPTIONS>>
+
+options:
+    Target channel: -c <<CHANNEL>>
+    Verbose output: -v

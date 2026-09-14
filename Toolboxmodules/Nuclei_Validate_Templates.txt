@@ -1,0 +1,7 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://github.com/projectdiscovery/nuclei#command-line-flags
+# Use Toolbox Dry-Run before execution.
+Name: Nuclei_Validate_Templates
+Description: Validate a local Nuclei template file or directory without scanning a target.
+Category: Command-Line Utilities
+Command: nuclei -validate -t "<<TEMPLATE_PATH>>"

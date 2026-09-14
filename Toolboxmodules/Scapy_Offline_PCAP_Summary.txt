@@ -1,0 +1,13 @@
+# Toolbox external module; Kali pack, 2026-09-14.
+# Source: https://scapy.readthedocs.io/en/latest/api/scapy.utils.html
+# Requires the included helper and Kali python3-scapy. No network packets are sent.
+# PACKET_LIMIT must be positive. Output reports whether the capture was truncated at the limit.
+# Use Toolbox Dry-Run before execution.
+Name: Scapy_Offline_PCAP_Summary
+Description: Summarize packet types from a local capture using Scapy, reading at most 10000 packets by default.
+Category: Traffic Analysis
+Command: python3 "<<PACK_HELPER>>" pcap "<<CAPTURE_FILE>>" <<OPTIONS>>
+
+options:
+    Custom packet limit: --limit <<PACKET_LIMIT>>
+    Show individual packet summaries: --details
