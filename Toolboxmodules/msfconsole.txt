@@ -1,0 +1,7 @@
+Name: msfconsole
+Description: Metasploit’s interactive command-line interface for searching, configuring, and running authorized security-testing modules.
+Category: Exploit
+Command: msfconsole <<OPTIONS>>
+options:
+	Quiet: -q
+	
