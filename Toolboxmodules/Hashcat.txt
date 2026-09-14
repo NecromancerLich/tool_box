@@ -1,0 +1,19 @@
+# Hashcat Dictionary Attack
+# Tool_Box external module
+
+Name: Hashcat Dictionary Attack
+Description: Run a configurable Hashcat dictionary attack against a local hash file.
+Category: Pass/Hash Cracking
+Command: hashcat <<OPTIONS>> <<HASH_FILE>> <<WORDLIST>> <<OPTIONS2>>
+
+options:
+    Hash Mode: -m <<HASH_MODE>>
+    Attack Mode: -a <<ATTACK_MODE>>
+    Username Field Present: --username
+    Workload Profile: -w <<WORKLOAD_PROFILE>>
+
+options2:
+    Show Status: --status
+    Status Timer: --status-timer=<<STATUS_TIMER>>
+    Output Cracked Passwords: -o <<OUTPUT_FILE>>
+    Use Rule File: -r <<RULE_FILE>>

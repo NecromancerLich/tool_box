@@ -1,0 +1,7 @@
+Name: John Show Cracked
+Description: Display passwords already recovered by John for a local hash file.
+Category: Pass/Hash Cracking
+Command: john --show <<OPTIONS>> <<HASH_FILE>>
+
+options:
+    Hash Format: --format=<<FORMAT>>

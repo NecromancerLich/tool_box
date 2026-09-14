@@ -1,0 +1,21 @@
+# SQLMap
+# Tool_Box external module
+
+Name: SQLMap
+Description: Test a web application parameter for SQL injection using sqlmap.
+Category: Exploit
+Command: sqlmap <<OPTIONS>> -u <<URL>> <<OPTIONS2>>
+
+options:
+    Test Parameter: -p <<PARAMETER>>
+    POST Data: --data=<<POST_DATA>>
+    Cookie: --cookie=<<COOKIE>>
+    HTTP Method: --method=<<HTTP_METHOD>>
+
+options2:
+    Detection Level: --level=<<LEVEL>>
+    Risk Level: --risk=<<RISK>>
+    Threads: --threads=<<THREADS>>
+    DBMS Hint: --dbms=<<DBMS>>
+    Random User Agent: --random-agent
+    Batch Mode: --batch

@@ -1,0 +1,16 @@
+# John the Ripper Dictionary Attack
+# Tool_Box external module
+
+Name: John the Ripper
+Description: Run John the Ripper against a local hash file using a wordlist.
+Category: Pass/Hash Cracking
+Command: john <<OPTIONS>> <<HASH_FILE>> <<OPTIONS2>>
+
+options:
+    Wordlist: --wordlist=<<WORDLIST>>
+    Hash Format: --format=<<FORMAT>>
+    Rules: --rules=<<RULESET>>
+
+options2:
+    Session Name: --session=<<SESSION_NAME>>
+    Fork Processes: --fork=<<FORK_COUNT>>
